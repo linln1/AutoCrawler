@@ -222,11 +222,11 @@ def main():
         return
     
     # 配置信息 - 请修改为您的实际信息
-    EMAIL = "lzy19801335167@gmail.com"  # 您的Gmail邮箱
-    PASSWORD = "mhbo fkcs sjiu vfcp"   # 应用专用密码
+    EMAIL = "your_email_address@gmail.com"  # 您的Gmail邮箱
+    PASSWORD = "your_app_password"   # 应用专用密码
     
     # 检查配置
-    if EMAIL == "1234567890@gmail.com" or PASSWORD == "your_app_password":
+    if EMAIL == "your_email_address@gmail.com" or PASSWORD == "your_app_password":
         print("\n⚠️  请先配置Gmail邮箱信息！")
         print("   编辑 main.py 文件中的 EMAIL 和 PASSWORD 变量")
         print("   或者使用环境变量配置")
