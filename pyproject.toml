@@ -1,17 +1,18 @@
 [project]
-name = "autocraw-gmail"
-version = "0.1.0"
-description = "Gmail自动发送邮件脚本，支持Markdown格式和多种附件类型"
+name = "cs-paper-automation"
+version = "1.5.0"
+description = "CS论文自动化分析系统 - 爬取ArXiv论文，AI分析，生成报告，自动发送邮件"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "openai>=1.0.0",
+    "requests>=2.25.0",
+    "httpx>=0.24.0",
+    "beautifulsoup4>=4.9.0",
+    "PyYAML>=6.0",
+    "schedule>=1.2.0",
     "markdown>=3.4.0",
-    "typing-extensions>=4.0.0",
-    "python-dotenv>=1.0.0",
-    "playwright>=1.54.0",
-    "beautifulsoup4>=4.13.4",
-    "openai>=1.100.2",
-    "requests>=2.32.5",
+    "urllib3>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -27,3 +28,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0"
+]

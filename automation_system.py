@@ -299,8 +299,8 @@ class AutomationSystem:
             "openai",
             "requests", 
             "httpx",
-            "beautifulsoup4",
-            "yaml",
+            "bs4",  # beautifulsoup4
+            "yaml",  # PyYAML
             "schedule",
             "markdown"
         ]
@@ -316,7 +316,7 @@ class AutomationSystem:
         
         if missing_packages:
             print(f"\n⚠️  缺少依赖包: {', '.join(missing_packages)}")
-            print("   请运行: pip install -r requirements.txt")
+            print("   请运行: uv sync")
             return False
         
         print("✅ 所有依赖包已安装")

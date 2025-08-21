@@ -1,0 +1,42 @@
+[
+  {
+    "id": "2508.14079",
+    "url": "https://arxiv.org/abs/2508.14079",
+    "category": "cs",
+    "source": "arxiv",
+    "crawl_time": "2025-08-22T01:53:52.312125",
+    "title": "A Guide to Robust Generalization: The Impact of Architecture, Pre-training, and Optimization Strategy",
+    "authors": "Maxime Heuillet, Rishika Bhagwatkar, Jonas Ngnawé, Yann Pequignot, Alexandre Larouche, Christian Gagné, Irina Rish, Ola Ahmad, Audrey Durand",
+    "subjects": "Machine Learning (cs.LG)",
+    "abstract": "Deep learning models operating in the image domain are vulnerable to small input perturbations. For years, robustness to such perturbations was pursued by training models from scratch (i.e., with random initializations) using specialized loss objectives. Recently, robust fine-tuning has emerged as a more efficient alternative: instead of training from scratch, pretrained models are adapted to maximize predictive performance and robustness. To conduct robust fine-tuning, practitioners design an optimization strategy that includes the model update protocol (e.g., full or partial) and the specialized loss objective. Additional design choices include the architecture type and size, and the pretrained representation. These design choices affect robust generalization, which is the model's ability to maintain performance when exposed to new and unseen perturbations at test time. Understanding how these design choices influence generalization remains an open question with significant practical implications. In response, we present an empirical study spanning 6 datasets, 40 pretrained architectures, 2 specialized losses, and 3 adaptation protocols, yielding 1,440 training configurations and 7,200 robustness measurements across five perturbation types. To our knowledge, this is the most diverse and comprehensive benchmark of robust fine-tuning to date. While attention-based architectures and robust pretrained representations are increasingly popular, we find that convolutional neural networks pretrained in a supervised manner on large datasets often perform best. Our analysis both confirms and challenges prior design assumptions, highlighting promising research directions and offering practical guidance.",
+    "matched_keyword": "pre-training",
+    "matched_category": "预训练"
+  },
+  {
+    "id": "2508.14383",
+    "url": "https://arxiv.org/abs/2508.14383",
+    "category": "cs",
+    "source": "arxiv",
+    "crawl_time": "2025-08-22T01:53:52.355522",
+    "title": "Offline Imitation Learning upon Arbitrary Demonstrations by Pre-Training Dynamics Representations",
+    "authors": "Haitong Ma, Bo Dai, Zhaolin Ren, Yebin Wang, Na Li",
+    "subjects": "Robotics (cs.RO); Machine Learning (cs.LG)",
+    "abstract": "Limited data has become a major bottleneck in scaling up offline imitation learning (IL). In this paper, we propose enhancing IL performance under limited expert data by introducing a pre-training stage that learns dynamics representations, derived from factorizations of the transition dynamics. We first theoretically justify that the optimal decision variable of offline IL lies in the representation space, significantly reducing the parameters to learn in the downstream IL. Moreover, the dynamics representations can be learned from arbitrary data collected with the same dynamics, allowing the reuse of massive non-expert data and mitigating the limited data issues. We present a tractable loss function inspired by noise contrastive estimation to learn the dynamics representations at the pre-training stage. Experiments on MuJoCo demonstrate that our proposed algorithm can mimic expert policies with as few as a single trajectory. Experiments on real quadrupeds show that we can leverage pre-trained dynamics representations from simulator data to learn to walk from a few real-world demonstrations.",
+    "comments": "7 pages, 5 figures",
+    "matched_keyword": "pre-training",
+    "matched_category": "预训练"
+  },
+  {
+    "id": "2506.08113",
+    "url": "https://arxiv.org/abs/2506.08113",
+    "category": "cs",
+    "source": "arxiv",
+    "crawl_time": "2025-08-22T01:53:52.477196",
+    "title": "Benchmarking Pre-Trained Time Series Models for Electricity Price Forecasting",
+    "authors": "Timothée Hornek Amir Sartipi, Igor Tchappi, Gilbert Fridgen",
+    "subjects": "Machine Learning (cs.LG); Artificial Intelligence (cs.AI); Statistical Finance (q-fin.ST)",
+    "abstract": "Accurate electricity price forecasting (EPF) is crucial for effective decision-making in power trading on the spot market. While recent advances in generative artificial intelligence (GenAI) and pre-trained large language models (LLMs) have inspired the development of numerous time series foundation models (TSFMs) for time series forecasting, their effectiveness in EPF remains uncertain. To address this gap, we benchmark several state-of-the-art pretrained models--Chronos-Bolt, Chronos-T5, TimesFM, Moirai, Time-MoE, and TimeGPT--against established statistical and machine learning (ML) methods for EPF. Using 2024 day-ahead auction (DAA) electricity prices from Germany, France, the Netherlands, Austria, and Belgium, we generate daily forecasts with a one-day horizon. Chronos-Bolt and Time-MoE emerge as the strongest among the TSFMs, performing on par with traditional models. However, the biseasonal MSTL model, which captures daily and weekly seasonality, stands out for its consistent performance across countries and evaluation metrics, with no TSFM statistically outperforming it.",
+    "matched_keyword": "pre-trained",
+    "matched_category": "预训练"
+  }
+]

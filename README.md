@@ -8,11 +8,13 @@
 - 生成中文分析报告
 - 自动发送邮件报告
 
+**本项目使用uv进行依赖管理，确保环境一致性和快速安装。**
+
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装uv（如果还没有安装）
 ```bash
-uv sync
+pip install uv
 ```
 
 ### 2. 配置系统
@@ -29,11 +31,15 @@ cp config_template.yaml config.yaml
 
 ### 3. 运行系统
 ```bash
-# 交互式菜单（推荐新手）
+# 方式1：使用uv直接运行（推荐）
 uv run automation_system.py interactive
 
-# 或者直接运行完整流程
-uv run automation_system.py run
+# 方式2：使用启动脚本
+# Windows: 双击 run.bat
+# Linux/Mac: ./run.sh
+
+# 方式3：使用Python启动脚本
+python start.py
 ```
 
 ## 主要功能
@@ -105,6 +111,21 @@ uv run automation_system.py report
 uv run automation_system.py help
 ```
 
+### 依赖管理
+```bash
+# 安装/更新依赖
+uv sync
+
+# 添加新依赖
+uv add package_name
+
+# 添加开发依赖
+uv add --dev package_name
+
+# 查看依赖树
+uv tree
+```
+
 ## 配置文件
 
 ### 配置模板
@@ -157,6 +178,7 @@ uv run automation_system.py help
 - **智能链接**: 为每篇论文生成Kimi对话链接，支持继续深入讨论
 - **自动分类**: 按研究领域自动分类论文
 - **邮件集成**: 支持Gmail自动发送，包含完整报告
+- **uv管理**: 使用现代Python包管理器，确保依赖一致性
 
 ## 系统架构
 
@@ -182,7 +204,7 @@ ArXiv API  Kimi API  Markdown   Gmail SMTP
 - **v1.2**: 集成邮件发送功能
 - **v1.3**: 优化代码结构，合并功能模块
 - **v1.4**: 配置安全化，支持模板配置
-- **v1.5**: 使用uv run命令，增强安全性
+- **v1.5**: 完全使用uv管理项目，增强依赖管理
 
 ## 技术支持
 
@@ -190,4 +212,5 @@ ArXiv API  Kimi API  Markdown   Gmail SMTP
 1. 检查配置文件设置
 2. 查看日志文件
 3. 确认API密钥有效
-4. 检查网络连接状态 
+4. 检查网络连接状态
+5. 运行`uv sync`确保依赖正确安装 
