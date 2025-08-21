@@ -3,6 +3,7 @@
 """
 CS论文爬虫工具
 基于MediaCrawler项目，去掉数据库存储部分，专门用于爬取CS领域的论文
+使用LLM进行语义过滤，提高相关性判断准确性
 """
 
 import json
@@ -17,10 +18,20 @@ from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 from bs4 import BeautifulSoup
 
+# 导入LLM API
+try:
+    from llm_api import get_kimi_client, analyze_paper_relevance
+except ImportError:
+    # 如果导入失败，提供备用方案
+    analyze_paper_relevance = None
+
 # 配置
 CRAWLER_CONFIG = {
     "request_delay": 2,  # 请求间隔时间（秒）
     "timeout": 10,  # 请求超时时间（秒）
+    "enable_llm_filter": True,  # 是否启用LLM语义过滤
+    "llm_batch_size": 5,  # LLM批量处理大小
+    "relevance_threshold": 0.7,  # 相关性阈值
 }
 
 # ArXiv CS领域分类 - 只爬取每日论文
@@ -28,7 +39,25 @@ ARXIV_CS_CATEGORIES = {
     "cs": "https://arxiv.org/list/cs/new",  # 计算机科学每日论文
 }
 
-# CS领域关键词
+# 研究领域定义 - 用于LLM判断
+RESEARCH_AREAS = {
+    "大模型算法": "专注于大语言模型的算法改进、架构优化、训练方法等",
+    "大模型应用": "大模型在实际应用中的部署、优化、效果提升等",
+    "智能体系统": "多智能体系统、自主智能体、智能体协作等",
+    "强化学习": "强化学习算法、策略优化、多智能体强化学习等",
+    "多模态AI": "视觉语言模型、图像文本理解、音频视觉融合等",
+    "模型微调": "LoRA、QLoRA、Adapter等参数高效微调方法",
+    "检索增强生成": "RAG系统、知识检索、检索增强的生成等",
+    "AI对齐": "AI安全性、价值观对齐、指令微调等",
+    "大模型训练基础设施": "大模型训练基础设施、大模型训练框架、大模型训练平台等",
+    "大模型推理基础设施": "大模型推理基础设施、大模型推理框架、大模型推理平台等",
+    "大模型推理算法": "大模型推理算法、大模型推理框架、大模型推理平台等",
+    "大模型训练数据构造方法":"预训练数据构造方法、数据增强方法、数据清洗方法等",
+    "微调数据构造方法":"微调数据构造方法、数据增强方法、数据清洗方法等",
+    "后训练数据构造方法":"后训练数据构造方法、数据增强方法、数据清洗方法等",
+}
+
+# 保留关键词过滤作为备用方案
 CS_KEYWORDS = {
     "大模型": ["large language model", "LLM", "GPT"],
     "智能体": ["agent", "intelligent agent", "multi-agent", "autonomous agent"],
@@ -45,9 +74,11 @@ CS_KEYWORDS = {
 class CSPaperCrawler:
     """CS论文爬虫类"""
     
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
         self.setup_logging()
         self.setup_keywords()
+        self.setup_llm_filter_config()
         self.output_dir = self._create_output_dir()
         self.crawled_papers: Set[str] = set()
         
@@ -71,6 +102,21 @@ class CSPaperCrawler:
                 self.keywords[keyword.lower()] = category
         
         self.logger.info(f"加载了 {len(self.keywords)} 个关键词，涵盖 {len(CS_KEYWORDS)} 个领域")
+    
+    def setup_llm_filter_config(self):
+        """设置LLM过滤配置"""
+        # 从配置文件读取设置，如果没有则使用默认值
+        llm_config = self.config.get("crawler", {}).get("llm_filter", {})
+        
+        self.llm_filter_enabled = llm_config.get("enabled", CRAWLER_CONFIG["enable_llm_filter"])
+        self.relevance_threshold = llm_config.get("relevance_threshold", CRAWLER_CONFIG["relevance_threshold"])
+        self.llm_batch_size = llm_config.get("batch_size", CRAWLER_CONFIG["llm_batch_size"])
+        self.request_interval = llm_config.get("request_interval", 1)
+        
+        if self.llm_filter_enabled:
+            self.logger.info(f"LLM语义过滤已启用，阈值: {self.relevance_threshold}, 批量大小: {self.llm_batch_size}")
+        else:
+            self.logger.info("LLM语义过滤已禁用，将使用关键词过滤")
     
     def _create_output_dir(self) -> str:
         """创建输出目录，格式为YYMMDD"""
@@ -249,24 +295,87 @@ class CSPaperCrawler:
         return papers
     
     def filter_papers_by_keywords(self, papers: List[Dict]) -> List[Dict]:
-        """根据关键词筛选论文"""
-        filtered_papers = []
+        """使用LLM语义过滤论文，提高相关性判断准确性"""
+        if not papers:
+            return []
         
+        if self.llm_filter_enabled and analyze_paper_relevance:
+            return self._filter_papers_with_llm(papers)
+        else:
+            # 备用方案：使用关键词过滤
+            self.logger.warning("LLM过滤不可用，使用关键词过滤作为备用方案")
+            return self._filter_papers_with_keywords(papers)
+    
+    def _filter_papers_with_llm(self, papers: List[Dict]) -> List[Dict]:
+        """使用LLM进行语义过滤"""
+        self.logger.info(f"使用LLM语义过滤 {len(papers)} 篇论文...")
+        
+        filtered_papers = []
+        batch_size = self.llm_batch_size
+        threshold = self.relevance_threshold
+        
+        # 批量处理论文
+        for i in range(0, len(papers), batch_size):
+            batch = papers[i:i + batch_size]
+            self.logger.info(f"处理批次 {i//batch_size + 1}/{(len(papers) + batch_size - 1)//batch_size}")
+            
+            for paper in batch:
+                try:
+                    # 使用LLM判断论文相关性
+                    relevance_score, best_area, reasoning = analyze_paper_relevance(
+                        paper.get("title", ""),
+                        paper.get("abstract", ""),
+                        RESEARCH_AREAS
+                    )
+                    
+                    if relevance_score >= threshold:
+                        paper["relevance_score"] = relevance_score
+                        paper["matched_area"] = best_area
+                        paper["reasoning"] = reasoning
+                        filtered_papers.append(paper)
+                        self.logger.info(f"论文 '{paper.get('title', 'Unknown')[:50]}...' 相关性: {relevance_score:.2f}, 领域: {best_area}")
+                    else:
+                        self.logger.debug(f"论文 '{paper.get('title', 'Unknown')[:50]}...' 相关性不足: {relevance_score:.2f}")
+                    
+                    # 添加延迟避免API限制
+                    time.sleep(self.request_interval)
+                    
+                except Exception as e:
+                    self.logger.warning(f"LLM分析论文失败: {e}")
+                    # 如果LLM分析失败，使用关键词过滤作为备用
+                    if self._check_paper_relevance_with_keywords(paper):
+                        paper["matched_area"] = "关键词匹配(备用)"
+                        paper["relevance_score"] = 0.5
+                        filtered_papers.append(paper)
+        
+        self.logger.info(f"LLM语义过滤完成，从 {len(papers)} 篇论文中筛选出 {len(filtered_papers)} 篇相关论文")
+        return filtered_papers
+    
+    def _filter_papers_with_keywords(self, papers: List[Dict]) -> List[Dict]:
+        """使用关键词过滤（备用方案）"""
+        self.logger.info("使用关键词过滤论文...")
+        
+        filtered_papers = []
         for paper in papers:
-            title = paper.get("title", "").lower()
-            
-            matched_keywords = []
-            for keyword, category in self.keywords.items():
-                if keyword.lower() in title:
-                    matched_keywords.append((keyword, category))
-            
-            if matched_keywords:
-                best_match = max(matched_keywords, key=lambda x: len(x[0]))
-                paper["matched_keyword"] = best_match[0]
-                paper["matched_category"] = best_match[1]
+            if self._check_paper_relevance_with_keywords(paper):
                 filtered_papers.append(paper)
         
+        self.logger.info(f"关键词过滤完成，从 {len(papers)} 篇论文中筛选出 {len(filtered_papers)} 篇相关论文")
         return filtered_papers
+    
+    def _check_paper_relevance_with_keywords(self, paper: Dict) -> bool:
+        """检查论文是否与关键词相关"""
+        title = paper.get("title", "").lower()
+        abstract = paper.get("abstract", "").lower()
+        text = f"{title} {abstract}"
+        
+        for keyword, category in self.keywords.items():
+            if keyword.lower() in text:
+                paper["matched_keyword"] = keyword
+                paper["matched_category"] = category
+                return True
+        
+        return False
     
     def save_papers(self, papers: List[Dict]):
         """保存论文到本地文件"""

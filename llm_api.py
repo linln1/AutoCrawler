@@ -8,6 +8,7 @@ import httpx
 from datetime import datetime
 from openai import OpenAI
 from pathlib import Path
+from typing import Dict
 
 # 导入配置管理器
 from config_manager import get_config
@@ -382,6 +383,142 @@ def analyze_paper_with_kimi_cache(client, paper_info, cache_tag):
     
     logging.info(f"论文分析完成: {paper_info.get('title', 'Unknown')}")
     return analysis_result
+
+# ==================== 论文相关性分析 ====================
+def analyze_paper_relevance(title: str, abstract: str, research_areas: Dict[str, str], max_retries: int = 3) -> tuple:
+    """
+    使用LLM分析论文与研究领域的相关性
+    
+    Args:
+        title: 论文标题
+        abstract: 论文摘要
+        research_areas: 研究领域定义字典
+        max_retries: 最大重试次数
+    
+    Returns:
+        tuple: (相关性分数, 最佳匹配领域, 推理过程)
+    """
+    for attempt in range(max_retries):
+        try:
+            client = get_kimi_client()
+            if not client:
+                logging.error("无法获取LLM客户端")
+                return 0.0, "未知", "LLM客户端不可用"
+            
+            # 构建提示词
+            areas_description = "\n".join([f"- {area}: {desc}" for area, desc in research_areas.items()])
+            
+            prompt = f"""
+请分析以下论文与我们关注的研究领域的相关性。
+
+论文标题: {title}
+论文摘要: {abstract}
+
+我们关注的研究领域:
+{areas_description}
+
+请从以下角度分析:
+1. 论文内容与哪个研究领域最相关？
+2. 相关性程度如何？(0.0-1.0，1.0表示完全相关)
+3. 简要说明判断理由
+
+请按以下JSON格式回答:
+{{
+    "relevance_score": 0.85,
+    "best_area": "大模型算法",
+    "reasoning": "论文主要讨论Transformer架构的改进，属于大模型算法领域"
+}}
+
+注意:
+- 如果论文与硬件、芯片设计、工程实现等无关，请给出较低的相关性分数
+- 重点关注算法、方法、理论等核心AI研究内容
+- 相关性分数要客观准确
+"""
+
+            # 调用LLM
+            response = client.chat.completions.create(
+                model=get_api_config()["model"],
+                messages=[
+                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家，擅长判断论文与研究领域的相关性。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,  # 低温度确保一致性
+                max_tokens=500
+            )
+            
+            # 解析响应
+            content = response.choices[0].message.content.strip()
+            
+            # 尝试提取JSON
+            try:
+                # 查找JSON部分
+                json_start = content.find('{')
+                json_end = content.rfind('}') + 1
+                if json_start != -1 and json_end != -1:
+                    json_str = content[json_start:json_end]
+                    result = json.loads(json_str)
+                    
+                    relevance_score = float(result.get("relevance_score", 0.0))
+                    best_area = result.get("best_area", "未知")
+                    reasoning = result.get("reasoning", "无推理说明")
+                    
+                    # 验证分数范围
+                    relevance_score = max(0.0, min(1.0, relevance_score))
+                    
+                    return relevance_score, best_area, reasoning
+                else:
+                    # 如果没有找到JSON，尝试从文本中提取信息
+                    return _extract_relevance_from_text(content, research_areas)
+                    
+            except json.JSONDecodeError:
+                logging.warning(f"LLM响应不是有效JSON，尝试从文本提取: {content}")
+                return _extract_relevance_from_text(content, research_areas)
+                
+        except Exception as e:
+            error_msg = str(e)
+            logging.warning(f"LLM分析论文相关性失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+            
+            # 检查是否是速率限制错误
+            if "rate_limit" in error_msg.lower() or "429" in error_msg:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 递增等待时间
+                    logging.info(f"遇到速率限制，等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logging.error("达到最大重试次数，返回默认值")
+                    return 0.0, "未知", f"速率限制，重试失败: {error_msg}"
+            else:
+                # 其他错误，直接返回
+                logging.error(f"LLM分析失败: {error_msg}")
+                return 0.0, "未知", f"分析失败: {error_msg}"
+    
+    # 所有重试都失败了
+    return 0.0, "未知", "所有重试都失败了"
+
+def _extract_relevance_from_text(text: str, research_areas: Dict[str, str]) -> tuple:
+    """从LLM的文本响应中提取相关性信息"""
+    try:
+        # 尝试找到相关性分数
+        import re
+        score_match = re.search(r'相关性.*?(\d+\.?\d*)', text)
+        relevance_score = float(score_match.group(1)) if score_match else 0.5
+        
+        # 尝试找到最佳匹配领域
+        best_area = "未知"
+        for area in research_areas.keys():
+            if area in text:
+                best_area = area
+                break
+        
+        # 提取推理过程
+        reasoning = text.split('\n')[-1] if text else "无法提取推理过程"
+        
+        return relevance_score, best_area, reasoning
+        
+    except Exception as e:
+        logging.warning(f"从文本提取相关性信息失败: {e}")
+        return 0.5, "未知", "无法提取信息"
 
 def load_paper_data():
     """加载爬取的论文数据"""

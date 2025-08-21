@@ -1,0 +1,42 @@
+[
+  {
+    "paper": {
+      "title": "Efficient Large Language Model Training with LoRA",
+      "abstract": "We propose a novel approach to fine-tune large language models using Low-Rank Adaptation (LoRA), which significantly reduces computational costs while maintaining performance."
+    },
+    "relevance_score": 0.0,
+    "best_area": "未知",
+    "reasoning": "分析失败: Error code: 429 - {'error': {'message': 'Your account org-e30e987b1da0458f8d1c403cfda9e859<ak-f4mkowybkbb111cjsyb1> request reached max organization concurrency: 1, please try again after 1 seconds', 'type': 'rate_limit_reached_error'}}",
+    "is_relevant": false
+  },
+  {
+    "paper": {
+      "title": "Hardware Optimization for Transformer Inference",
+      "abstract": "This paper presents hardware acceleration techniques for transformer model inference, focusing on chip design and memory optimization."
+    },
+    "relevance_score": 0.0,
+    "best_area": "未知",
+    "reasoning": "分析失败: Error code: 429 - {'error': {'message': 'Your account org-e30e987b1da0458f8d1c403cfda9e859<ak-f4mkowybkbb111cjsyb1> request reached max organization concurrency: 1, please try again after 1 seconds', 'type': 'rate_limit_reached_error'}}",
+    "is_relevant": false
+  },
+  {
+    "paper": {
+      "title": "Multi-Agent Reinforcement Learning for Game Playing",
+      "abstract": "We investigate multi-agent reinforcement learning approaches for complex game environments, demonstrating improved coordination and strategy learning."
+    },
+    "relevance_score": 0.0,
+    "best_area": "未知",
+    "reasoning": "分析失败: Error code: 429 - {'error': {'message': 'Your account org-e30e987b1da0458f8d1c403cfda9e859<ak-f4mkowybkbb111cjsyb1> request reached max organization concurrency: 1, please try again after 1 seconds', 'type': 'rate_limit_reached_error'}}",
+    "is_relevant": false
+  },
+  {
+    "paper": {
+      "title": "Vision-Language Models for Image Captioning",
+      "abstract": "A novel vision-language model architecture that combines visual and textual understanding for improved image captioning performance."
+    },
+    "relevance_score": 0.0,
+    "best_area": "未知",
+    "reasoning": "分析失败: Error code: 429 - {'error': {'message': 'Your account org-e30e987b1da0458f8d1c403cfda9e859<ak-f4mkowybkbb111cjsyb1> request reached max organization concurrency: 1, please try again after 1 seconds', 'type': 'rate_limit_reached_error'}}",
+    "is_relevant": false
+  }
+]

@@ -815,7 +815,8 @@ uv sync
         """爬取论文"""
         try:
             self.logger.info("初始化论文爬虫")
-            crawler = CSPaperCrawler()
+            # 传递配置给爬虫
+            crawler = CSPaperCrawler(config=self.config)
             
             # 运行爬虫
             self.logger.info("开始爬取论文...")
