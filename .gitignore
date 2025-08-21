@@ -1,0 +1,55 @@
+# 敏感配置文件
+config.yaml
+config_backup_*.yaml
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 日志文件
+*.log
+logs/
+
+# 数据文件
+250821/
+YYMMDD/
+pdf_downloads/
+paper_analysis/
+reports/
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 环境变量文件
+.env
+.env.local
+.env.production
+
+# 锁文件
+uv.lock
+poetry.lock
+
+# 其他
+*.bak
+*.backup 

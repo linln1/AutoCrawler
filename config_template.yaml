@@ -1,0 +1,326 @@
+# CS论文自动化分析系统配置文件模板
+# 复制此文件为 config.yaml 并填入你的实际配置信息
+# 注意：config.yaml 已添加到 .gitignore，不会被上传到git
+#
+# ==================== 配置说明 ====================
+# 本配置文件包含系统的所有可配置项，为了安全起见：
+# 1. 将此文件复制为 config.yaml
+# 2. 在 config.yaml 中填入你的实际API密钥和邮箱信息
+# 3. config.yaml 已添加到 .gitignore，不会被上传到git
+# 4. 请妥善保管你的API密钥和邮箱密码
+# 5. 建议使用应用专用密码而不是邮箱登录密码
+#
+# ==================== 配置步骤 ====================
+# 第一步：复制配置模板
+#   cp config_template.yaml config.yaml
+#
+# 第二步：编辑配置文件，填入以下信息：
+#   - Kimi API密钥
+#   - OpenAI API密钥（可选）
+#   - DeepSeek API密钥（可选）
+#   - Gmail邮箱和应用专用密码
+#
+# 第三步：验证配置
+#   uv run automation_system.py interactive
+#   选择7: 查看配置信息
+#
+# ==================== 重要配置项说明 ====================
+# LLM配置：
+#   - provider: 选择使用的API提供商（kimi/openai/deepseek）
+#   - api_key: 对应提供商的API密钥
+#   - model: 使用的模型名称
+#   - temperature: 生成文本的随机性（0-1）
+#   - max_tokens: 单次生成的最大token数
+#
+# 爬虫配置：
+#   - schedule: 爬取频率（daily/weekly/custom）
+#   - run_time: 每天运行的时间（24小时制）
+#   - request_delay: 请求间隔时间（秒）
+#   - keywords: 关键词分类配置
+#
+# 邮件配置：
+#   - enabled: 是否启用邮件发送
+#   - email: Gmail邮箱地址
+#   - password: Gmail应用专用密码（不是登录密码）
+#   - smtp_server: SMTP服务器地址
+#   - smtp_port: SMTP端口
+#
+# 定时任务配置：
+#   - enabled: 是否启用定时任务
+#   - mode: 运行模式（daily/weekly/custom）
+#   - run_time: 运行时间
+#   - timezone: 时区设置
+#
+# ==================== 安全注意事项 ====================
+# 1. API密钥安全：
+#    - 不要在代码中硬编码API密钥
+#    - 不要将包含API密钥的配置文件上传到公开仓库
+#    - 定期更换API密钥
+#
+# 2. 邮箱安全：
+#    - 使用应用专用密码，不要使用邮箱登录密码
+#    - 应用专用密码可以在Gmail设置中生成
+#    - 定期更换应用专用密码
+#
+# 3. 配置文件安全：
+#    - config.yaml已添加到.gitignore
+#    - 如需分享配置，请使用config_template.yaml
+#    - 在团队协作时，每个人维护自己的config.yaml
+#
+# ==================== 配置验证 ====================
+# 检查配置完整性：
+#   uv run automation_system.py interactive
+#   选择7: 查看配置信息
+#
+# 测试API连接：
+#   uv run automation_system.py analyze
+#
+# 测试邮件发送：
+#   uv run automation_system.py report
+#
+# ==================== 常见配置问题 ====================
+# 1. API密钥无效：
+#    - 检查API密钥是否正确复制
+#    - 确认API密钥是否过期
+#    - 检查网络连接
+#
+# 2. 邮件发送失败：
+#    - 确认Gmail应用专用密码正确
+#    - 检查Gmail两步验证是否启用
+#    - 确认SMTP设置正确
+#
+# 3. 爬虫不工作：
+#    - 检查网络连接
+#    - 确认ArXiv网站可访问
+#    - 检查关键词配置
+#
+# ==================== 配置备份 ====================
+# 建议定期备份你的配置文件：
+#   cp config.yaml config_backup_$(date +%Y%m%d).yaml
+#
+# 恢复配置：
+#   cp config_backup_20241201.yaml config.yaml
+#
+# ==================== 开始配置 ====================
+
+# ==================== 系统配置 ====================
+system:
+  # 是否启用自动化流程
+  enabled: true
+  # 日志级别: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+  # 工作目录
+  work_dir: "./"
+  # 是否保留临时文件
+  keep_temp_files: false
+
+# ==================== 论文爬取配置 ====================
+crawler:
+  # 爬取频率 (每天运行)
+  schedule: "daily"
+  # 爬取时间 (24小时制)
+  run_time: "09:00"
+  # 请求间隔时间（秒）
+  request_delay: 2
+  # 请求超时时间（秒）
+  timeout: 10
+  # 最大爬取论文数量 (0表示无限制)
+  max_papers: 0
+  
+  # ArXiv配置
+  arxiv:
+    # CS领域分类
+    categories:
+      cs: "https://arxiv.org/list/cs/new"
+    
+    # 关键词配置
+    keywords:
+      大模型: ["large language model", "LLM", "GPT", "BERT", "Transformer"]
+      智能体: ["agent", "intelligent agent", "multi-agent", "autonomous agent"]
+      强化学习: ["reinforcement learning", "RL", "PPO", "DPO", "A3C"]
+      多模态: ["multimodal", "vision-language", "image-text", "audio-visual", "video", "VLM", "MLLM"]
+      微调: ["fine-tuning", "adapter", "LoRA", "QLoRA", "PEFT"]
+      预训练: ["pre-training", "pre-trained", "foundation model"]
+      检索增强生成: ["RAG", "retrieval-augmented generation", "retrieval-augmented"]
+      后训练: ["post-training", "instruction tuning", "alignment"]
+
+# ==================== LLM API配置 ====================
+llm:
+  # API提供商: "kimi", "openai", "deepseek"
+  provider: "kimi"
+  
+  # Kimi API配置
+  kimi:
+    api_key: "your_kimi_api_key_here"  # 替换为你的实际API密钥
+    base_url: "https://api.moonshot.cn/v1"
+    model: "kimi-k2-0711-preview"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  # OpenAI API配置
+  openai:
+    api_key: "your_openai_api_key_here"  # 替换为你的实际API密钥
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4-turbo"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  # DeepSeek API配置
+  deepseek:
+    api_key: "your_deepseek_api_key_here"  # 替换为你的实际API密钥
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    temperature: 0.3
+    max_tokens: 4000
+  
+  # 分析配置
+  analysis:
+    # 是否启用多轮对话
+    enable_multi_turn: true
+    # 对话历史最大长度
+    max_conversation_length: 20
+    # 问题列表
+    questions:
+      - "总结一下论文的主要内容"
+      - "这篇论文试图解决什么问题？"
+      - "有哪些相关研究？引用不能只给出序号，需要结合pdf reference章节给出相关研究的论文标题。"
+      - "论文如何解决这个问题？"
+      - "论文做了哪些实验？实验结论如何？"
+      - "有什么可以进一步探索的点？"
+  
+  # 缓存配置
+  cache:
+    # 是否启用缓存
+    enabled: true
+    # 缓存有效期（秒）
+    ttl: 3600
+    # 是否自动清理过期缓存
+    auto_cleanup: true
+
+# ==================== 邮件配置 ====================
+email:
+  # 是否启用邮件发送
+  enabled: true
+  # 发送时间 (在LLM分析完成后)
+  send_after_analysis: true
+  
+  # Gmail配置
+  gmail:
+    email: "your_email@gmail.com"  # 替换为你的实际邮箱
+    password: "your_app_password_here"  # 替换为你的应用专用密码
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    use_ssl: false
+  
+  # 邮件内容配置
+  content:
+    # 邮件主题模板
+    subject_template: "CS论文每日分析报告 - {date}"
+    # 收件人列表
+    to_emails: []
+    # 抄送列表
+    cc_emails: []
+    # 密送列表
+    bcc_emails: []
+    # 是否包含附件
+    include_attachments: true
+    # 附件类型: "pdf", "markdown", "json", "all"
+    attachment_type: "all"
+  
+  # 报告模板配置
+  report:
+    # 报告标题
+    title: "CS论文每日分析报告"
+    # 报告副标题
+    subtitle: "基于ArXiv最新论文的智能解读"
+    # 是否包含摘要
+    include_abstract: true
+    # 是否包含关键词匹配信息
+    include_keywords: true
+    # 是否包含LLM分析结果
+    include_llm_analysis: true
+    # 是否包含统计信息
+    include_statistics: true
+
+# ==================== 输出配置 ====================
+output:
+  # 输出目录结构
+  directory_structure:
+    # 基础目录
+    base_dir: "./250821"
+    # PDF下载目录
+    pdf_dir: "./{date}/pdf_downloads"
+    # 分析结果目录
+    analysis_dir: "./{date}/paper_analysis"
+    # 报告目录
+    report_dir: "./{date}/reports"
+  
+  # 文件命名规则
+  naming:
+    # 论文数据文件
+    papers_file: "{category}_{date}_{time}.json"
+    # 分析结果文件
+    analysis_file: "all_paper_analysis_{date}_{time}.json"
+    # 报告文件
+    report_file: "daily_report_{date}_{time}.md"
+    # 汇总文件
+    summary_file: "crawl_summary_{date}_{time}.json"
+  
+  # 报告格式
+  report_format:
+    # 输出格式: "markdown", "html", "pdf"
+    format: "markdown"
+    # 是否包含时间戳
+    include_timestamp: true
+    # 是否包含目录
+    include_toc: true
+    # 是否包含图表
+    include_charts: false
+
+# ==================== 定时任务配置 ====================
+scheduler:
+  # 是否启用定时任务
+  enabled: true
+  # 运行模式: "daily", "weekly", "custom"
+  mode: "daily"
+  # 自定义Cron表达式 (当mode为custom时使用)
+  cron_expression: "0 9 * * *"  # 每天上午9点
+  # 时区
+  timezone: "Asia/Shanghai"
+  # 是否在启动时立即运行一次
+  run_on_startup: true
+  # 重试配置
+  retry:
+    enabled: true
+    max_attempts: 3
+    delay_seconds: 300
+
+# ==================== 通知配置 ====================
+notifications:
+  # 成功通知
+  success:
+    enabled: true
+    # 通知方式: "email", "webhook", "console"
+    method: "email"
+  
+  # 失败通知
+  failure:
+    enabled: true
+    method: "email"
+    # 是否包含错误详情
+    include_error_details: true
+  
+  # 进度通知
+  progress:
+    enabled: false
+    # 通知间隔（处理的论文数量）
+    interval: 10
+
+# ==================== 配置完成提示 ====================
+# 配置完成后，你可以：
+# 1. 运行系统：uv run automation_system.py interactive
+# 2. 检查配置：选择菜单中的"查看配置信息"
+# 3. 测试功能：选择"运行一次完整流程"
+# 4. 启动定时任务：选择"启动定时任务"
+#
+# 如有问题，请查看日志文件或参考README.md 

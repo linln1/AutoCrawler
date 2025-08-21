@@ -1,3 +1,9 @@
+openai>=1.0.0
+requests>=2.25.0
+httpx>=0.24.0
+beautifulsoup4>=4.9.0
+PyYAML>=6.0
+schedule>=1.2.0
 markdown>=3.4.0
-typing-extensions>=4.0.0
-python-dotenv>=1.0.0 
+urllib3>=1.26.0
+pathlib 

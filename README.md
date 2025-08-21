@@ -1,248 +1,193 @@
-# 🚀 Gmail自动发送邮件脚本
+# CS论文自动化分析系统
 
-这是一个功能完整的Python脚本，可以自动向Gmail邮箱发送邮件，支持Markdown格式和多种附件类型。
+## 这是什么？
 
-## ⚡ 5分钟快速上手
+这是一个自动化的CS论文分析工具，可以：
+- 自动爬取ArXiv上的最新CS论文
+- 使用AI分析论文内容
+- 生成中文分析报告
+- 自动发送邮件报告
 
-### 1. 安装依赖（推荐使用uv）
+## 快速开始
+
+### 1. 安装依赖
 ```bash
-# 使用uv（推荐）
 uv sync
-
-# 或者使用传统pip
-pip install -r requirements.txt
 ```
 
-### 2. 配置Gmail
-1. 开启两步验证
-2. 生成应用专用密码
-3. 修改 `main.py` 中的配置
-
-### 3. 发送第一封邮件
+### 2. 配置系统
 ```bash
-# 使用uv运行（推荐）
-uv run main.py
+# 复制配置模板
+cp config_template.yaml config.yaml
 
-# 或者直接运行
-python main.py
+# 编辑配置文件，填入你的实际信息
+# 主要需要配置：
+# - Kimi API密钥
+# - Gmail邮箱和应用专用密码
+# - 其他可选配置
 ```
 
-## 📁 文件说明
-
-- `main.py` - 主要的Gmail发送器类和主程序
-- `pyproject.toml` - UV项目配置文件
-- `requirements.txt` - 传统依赖包列表
-- `README.md` - 完整使用文档
-
-## 🔧 常见问题
-
-### Q: 为什么使用main.py？
-A: 合并了所有功能，避免文件分散，便于管理
-
-### Q: 如何获取应用专用密码？
-A: 参考下面的详细说明
-
-### Q: 支持哪些附件格式？
-A: PDF、PNG、JPG、ZIP等常见格式
-
-## 💡 使用建议
-
-1. 使用 `uv sync` 安装依赖
-2. 使用 `uv run main.py` 运行脚本
-3. 查看下面的完整文档了解所有功能
-4. 参考 `pyproject.toml` 了解UV配置
-
----
-
-## 功能特性
-
-- ✅ 支持Markdown格式邮件内容
-- ✅ 支持多种附件类型（PDF、PNG、ZIP等）
-- ✅ 支持抄送（CC）和密送（BCC）
-- ✅ 自动识别文件类型并正确处理
-- ✅ 完整的错误处理和日志记录
-- ✅ 支持SSL/TLS安全连接
-
-## 安装依赖
-
+### 3. 运行系统
 ```bash
-# 推荐使用UV
-uv sync
+# 交互式菜单（推荐新手）
+uv run automation_system.py interactive
 
-# 或者使用传统方式
-pip install -r requirements.txt
+# 或者直接运行完整流程
+uv run automation_system.py run
 ```
 
-或者手动安装：
+## 主要功能
 
-```bash
-pip install markdown typing-extensions python-dotenv
-```
+### 🔍 论文爬虫
+- 自动爬取ArXiv每日最新CS论文
+- 按关键词分类（大模型、智能体、多模态等）
+- 自动下载PDF文件
 
-## 配置说明
+### 🤖 AI分析
+- 使用Kimi API分析论文内容
+- 回答6个关键问题：
+  1. 论文主要内容
+  2. 解决的问题
+  3. 相关研究
+  4. 解决方案
+  5. 实验结果
+  6. 未来方向
 
-### 1. 获取Gmail应用专用密码
+### 📊 报告生成
+- 自动生成Markdown格式报告
+- 按类别分类统计
+- 包含Kimi对话链接
 
-**重要：** 不要使用您的Gmail登录密码，需要使用应用专用密码！
+### 📧 邮件发送
+- 自动发送分析报告
+- 支持Markdown格式
+- 可添加PDF附件
 
-1. 登录您的Google账户
-2. 进入"安全性"设置
-3. 开启"两步验证"
-4. 生成"应用专用密码"
-5. 选择"邮件"应用，生成16位密码
-
-### 2. 修改脚本配置
-
-编辑 `main.py` 文件中的以下配置：
-
-```python
-EMAIL = "your_email@gmail.com"      # 您的Gmail邮箱
-PASSWORD = "your_app_password"      # 应用专用密码
-```
+### ⏰ 定时任务
+- 支持每日自动运行
+- 可自定义运行时间
+- 失败自动重试
 
 ## 使用方法
 
-### 基本用法
-
-```python
-from main import GmailSender
-
-# 创建发送器实例
-sender = GmailSender("your_email@gmail.com", "your_app_password")
-
-# 发送简单邮件
-success = sender.send_email(
-    to_emails="recipient@example.com",
-    subject="测试邮件",
-    content="这是一封测试邮件",
-    content_type="plain"
-)
-```
-
-### 发送Markdown格式邮件
-
-```python
-markdown_content = """
-# 标题
-
-这是**粗体**文本和*斜体*文本。
-
-## 列表
-- 项目1
-- 项目2
-
-## 代码
-```python
-print("Hello World!")
-```
-"""
-
-success = sender.send_email(
-    to_emails="recipient@example.com",
-    subject="Markdown格式邮件",
-    content=markdown_content,
-    content_type="markdown"
-)
-```
-
-### 发送带附件的邮件
-
-```python
-success = sender.send_email(
-    to_emails="recipient@example.com",
-    subject="带附件的邮件",
-    content="请查看附件",
-    content_type="plain",
-    attachments=["document.pdf", "image.png", "data.zip"]
-)
-```
-
-### 发送给多个收件人
-
-```python
-success = sender.send_email(
-    to_emails=["user1@example.com", "user2@example.com"],
-    subject="群发邮件",
-    content="这是一封群发邮件",
-    content_type="plain",
-    cc_emails=["cc@example.com"],
-    bcc_emails=["bcc@example.com"]
-)
-```
-
-## 支持的附件类型
-
-- **图片文件**: PNG, JPG, GIF, BMP等
-- **文档文件**: PDF, DOC, DOCX, TXT等
-- **压缩文件**: ZIP, RAR, 7Z等
-- **其他文件**: 自动识别MIME类型
-
-## 运行示例
-
-1. 修改配置信息
-2. 运行脚本：
-
+### 交互式菜单
 ```bash
-# 使用UV（推荐）
-uv run main.py
-
-# 或者直接运行
-python main.py
+uv run automation_system.py interactive
 ```
+选择对应功能：
+1. 运行一次完整流程
+2. 启动定时任务
+3. 仅爬取论文
+4. 仅分析论文
+5. 仅生成报告
+6. 检查系统状态
+7. 查看配置信息
+8. 查看使用示例
 
-## UV环境管理
-
-### 基本命令
-
+### 命令行模式
 ```bash
-# 安装依赖
-uv sync
+# 运行一次完整流程
+uv run automation_system.py run
 
-# 运行脚本
-uv run main.py
+# 启动定时任务
+uv run automation_system.py schedule
 
-# 查看依赖树
-uv tree
+# 仅爬取论文
+uv run automation_system.py crawl
 
-# 添加新依赖
-uv add package_name
+# 仅分析论文
+uv run automation_system.py analyze
+
+# 仅生成报告
+uv run automation_system.py report
+
+# 查看帮助
+uv run automation_system.py help
 ```
 
-### 项目配置
+## 配置文件
 
-项目使用 `pyproject.toml` 管理配置，包含：
-- 主要依赖：markdown, python-dotenv, typing-extensions
-- 开发依赖：pytest, black, flake8
-- Python版本要求：>=3.10
+### 配置模板
+系统提供`config_template.yaml`作为配置模板，包含所有可配置项但不包含敏感信息。
+
+### 实际配置
+复制模板为`config.yaml`并填入你的实际信息：
+- **API密钥**: Kimi、OpenAI等API的密钥
+- **邮箱配置**: Gmail邮箱和应用专用密码
+- **爬虫设置**: 运行时间、请求间隔、关键词等
+- **LLM设置**: 模型参数、分析问题等
+- **邮件设置**: 发送时间、模板等
+- **定时任务**: 运行模式、时间设置等
+
+### 安全说明
+- `config.yaml`已添加到`.gitignore`，不会被上传到git
+- 请妥善保管你的API密钥和邮箱密码
+- 建议使用应用专用密码而不是邮箱登录密码
+
+## 输出结果
+
+分析结果保存在以下位置：
+- `./YYMMDD/paper_analysis/` - 论文分析结果
+- `./YYMMDD/reports/` - 生成的报告
+- `./YYMMDD/pdf_downloads/` - 下载的PDF文件
 
 ## 注意事项
 
-1. **安全性**: 不要在代码中硬编码密码，建议使用环境变量
-2. **附件大小**: Gmail有25MB的附件大小限制
-3. **发送频率**: 避免过于频繁的发送，以免被标记为垃圾邮件
-4. **错误处理**: 脚本包含完整的错误处理，请查看日志输出
+1. **API限制**: 需要有效的Kimi API密钥
+2. **网络要求**: 需要稳定的网络连接
+3. **存储空间**: PDF文件会占用本地存储
+4. **处理时间**: 每篇论文分析需要时间
 
 ## 故障排除
 
-### 常见错误
+### 常见问题
+1. **模块导入失败**: 运行`uv sync`
+2. **API调用失败**: 检查API密钥和网络连接
+3. **邮件发送失败**: 检查Gmail配置和应用密码
+4. **PDF下载失败**: 检查网络连接和存储空间
 
-1. **认证失败**: 检查邮箱和应用专用密码是否正确
-2. **附件不存在**: 确保附件文件路径正确且文件存在
-3. **网络问题**: 检查网络连接和防火墙设置
-4. **SSL错误**: 确保Python版本支持SSL
+### 查看日志
+- `automation_system.log` - 系统运行日志
+- `cs_crawler.log` - 爬虫运行日志
 
-### 日志查看
+## 技术特点
 
-脚本会输出详细的日志信息，包括：
-- 连接状态
-- 附件处理状态
-- 发送结果
-- 错误详情
+- **智能缓存**: 使用Kimi API的上下文缓存，避免重复传输
+- **多轮对话**: 问题之间相互关联，形成完整分析
+- **智能链接**: 为每篇论文生成Kimi对话链接，支持继续深入讨论
+- **自动分类**: 按研究领域自动分类论文
+- **邮件集成**: 支持Gmail自动发送，包含完整报告
 
-## 许可证
+## 系统架构
 
-MIT License
+```
+论文爬取 → AI分析 → 报告生成 → 邮件发送
+    ↓         ↓         ↓         ↓
+ArXiv API  Kimi API  Markdown   Gmail SMTP
+```
 
-## 贡献
+## 支持的研究领域
 
-欢迎提交Issue和Pull Request！ 
+- **大模型**: LLM、GPT、BERT等
+- **智能体**: 多智能体、自主智能体等
+- **多模态**: 视觉语言、图像文本等
+- **强化学习**: RL、PPO、DPO等
+- **微调**: LoRA、QLoRA、Adapter等
+- **检索增强**: RAG、知识检索等
+
+## 更新日志
+
+- **v1.0**: 基础功能实现
+- **v1.1**: 添加交互式菜单
+- **v1.2**: 集成邮件发送功能
+- **v1.3**: 优化代码结构，合并功能模块
+- **v1.4**: 配置安全化，支持模板配置
+- **v1.5**: 使用uv run命令，增强安全性
+
+## 技术支持
+
+如遇问题，请：
+1. 检查配置文件设置
+2. 查看日志文件
+3. 确认API密钥有效
+4. 检查网络连接状态 
