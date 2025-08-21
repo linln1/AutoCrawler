@@ -836,23 +836,50 @@ uv sync
         try:
             # 获取当前日期目录
             date_str = datetime.now().strftime("%y%m%d")
-            base_dir = self.config.get("output.directory_structure.base_dir", "./250821")
-            date_dir = os.path.join(base_dir, date_str)
+            
+            # 尝试多个可能的目录
+            possible_dirs = [
+                f"./{date_str}",  # 当前日期目录
+                self.config.get("output.directory_structure.base_dir", "./250821"),  # 配置的目录
+                "./250821",  # 昨天的目录（作为备选）
+                "./250822"   # 今天的目录（作为备选）
+            ]
             
             papers = []
             
-            # 查找论文文件
-            if os.path.exists(date_dir):
-                for filename in os.listdir(date_dir):
-                    if filename.endswith('.json') and 'papers' in filename:
-                        file_path = os.path.join(date_dir, filename)
+            for base_dir in possible_dirs:
+                if os.path.exists(base_dir):
+                    self.logger.info(f"检查目录: {base_dir}")
+                    
+                    # 查找论文文件
+                    for filename in os.listdir(base_dir):
+                        if filename.endswith('.json') and 'papers' in filename:
+                            file_path = os.path.join(base_dir, filename)
+                            try:
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    file_papers = json.load(f)
+                                    if isinstance(file_papers, list):
+                                        papers.extend(file_papers)
+                                        self.logger.info(f"从 {filename} 加载了 {len(file_papers)} 篇论文")
+                            except Exception as e:
+                                self.logger.warning(f"读取文件 {filename} 失败: {e}")
+                    
+                    # 如果找到了论文，就不再检查其他目录
+                    if papers:
+                        self.logger.info(f"在目录 {base_dir} 中找到论文，停止搜索")
+                        break
+            
+            if not papers:
+                self.logger.warning("在所有目录中都没有找到论文文件")
+                # 列出所有可能的目录内容，帮助调试
+                for base_dir in possible_dirs:
+                    if os.path.exists(base_dir):
+                        self.logger.info(f"目录 {base_dir} 内容:")
                         try:
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                file_papers = json.load(f)
-                                if isinstance(file_papers, list):
-                                    papers.extend(file_papers)
+                            for filename in os.listdir(base_dir):
+                                self.logger.info(f"  - {filename}")
                         except Exception as e:
-                            self.logger.warning(f"读取文件 {filename} 失败: {e}")
+                            self.logger.warning(f"无法列出目录 {base_dir} 内容: {e}")
             
             return papers
             
