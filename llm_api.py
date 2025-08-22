@@ -8,10 +8,98 @@ import httpx
 from datetime import datetime
 from openai import OpenAI
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
 
 # 导入配置管理器
 from config_manager import get_config
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Token统计类
+class TokenUsageTracker:
+    """Token使用量跟踪器"""
+    
+    def __init__(self):
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost_estimate = 0.0
+        self.api_calls = 0
+        self.start_time = datetime.now()
+    
+    def add_usage(self, input_tokens: int, output_tokens: int, model: str = "unknown"):
+        """添加token使用量"""
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        self.api_calls += 1
+        
+        # 估算成本（基于常见模型的定价）
+        cost = self._estimate_cost(input_tokens, output_tokens, model)
+        self.total_cost_estimate += cost
+        
+        logging.info(f"Token使用量: 输入={input_tokens}, 输出={output_tokens}, 估算成本=${cost:.4f}")
+    
+    def _estimate_cost(self, input_tokens: int, output_tokens: int, model: str) -> float:
+        """估算API调用成本"""
+        # 基于常见模型的定价（每1000 tokens的价格）
+        pricing = {
+            "gpt-4": {"input": 0.03, "output": 0.06},
+            "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},
+            "kimi-k2-0711-preview": {"input": 0.002, "output": 0.004},  # 估算
+            "deepseek-chat": {"input": 0.001, "output": 0.002},  # 估算
+            "unknown": {"input": 0.002, "output": 0.004}  # 默认估算
+        }
+        
+        model_pricing = pricing.get(model, pricing["unknown"])
+        input_cost = (input_tokens / 1000) * model_pricing["input"]
+        output_cost = (output_tokens / 1000) * model_pricing["output"]
+        
+        return input_cost + output_cost
+    
+    def get_summary(self) -> Dict:
+        """获取使用量摘要"""
+        duration = datetime.now() - self.start_time
+        return {
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_input_tokens + self.total_output_tokens,
+            "api_calls": self.api_calls,
+            "total_cost_estimate": self.total_cost_estimate,
+            "duration_seconds": duration.total_seconds(),
+            "start_time": self.start_time.isoformat(),
+            "end_time": datetime.now().isoformat()
+        }
+    
+    def print_summary(self):
+        """打印使用量摘要"""
+        summary = self.get_summary()
+        print("\n" + "="*60)
+        print("📊 Token使用量统计")
+        print("="*60)
+        print(f"总输入Token: {summary['total_input_tokens']:,}")
+        print(f"总输出Token: {summary['total_output_tokens']:,}")
+        print(f"总Token: {summary['total_tokens']:,}")
+        print(f"API调用次数: {summary['api_calls']}")
+        print(f"估算总成本: ${summary['total_cost_estimate']:.4f}")
+        print(f"运行时长: {summary['duration_seconds']:.1f} 秒")
+        print(f"开始时间: {summary['start_time']}")
+        print(f"结束时间: {summary['end_time']}")
+        print("="*60)
+    
+    def save_summary(self, filename: str = None):
+        """保存使用量摘要到文件"""
+        if filename is None:
+            filename = f"token_usage_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        summary = self.get_summary()
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        
+        logging.info(f"Token使用量统计已保存到: {filename}")
+
+# 全局token跟踪器
+token_tracker = TokenUsageTracker()
 
 # ==================== Configuration ====================
 # 从配置文件读取API配置，不再硬编码
@@ -55,7 +143,7 @@ ANALYSIS_QUESTIONS = [
 ]
 
 # 设置日志记录
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ==================== 获取API配置的函数 ====================
 def get_api_config():
@@ -80,7 +168,7 @@ def get_api_config():
                 "base_url": openai_config.get("base_url", "https://api.openai.com/v1"),
                 "model": openai_config.get("model", "gpt-4-turbo"),
                 "temperature": openai_config.get("temperature", 0.3),
-                "max_tokens": openai_config.get("max_tokens", 4000)
+                "max_tokens": kimi_config.get("max_tokens", 4000)
             }
         elif provider == "deepseek":
             deepseek_config = llm_config.get("deepseek", {})
@@ -89,7 +177,7 @@ def get_api_config():
                 "base_url": deepseek_config.get("base_url", "https://api.deepseek.com/v1"),
                 "model": deepseek_config.get("model", "deepseek-chat"),
                 "temperature": deepseek_config.get("temperature", 0.3),
-                "max_tokens": deepseek_config.get("max_tokens", 4000)
+                "max_tokens": kimi_config.get("max_tokens", 4000)
             }
         else:
             logging.error(f"不支持的LLM提供商: {provider}")
@@ -115,410 +203,516 @@ def get_kimi_client():
         logging.error(f"创建Kimi客户端失败: {e}")
         return None
 
-# ==================== 论文解读相关函数 ====================
-def ensure_paper_analysis_dir():
-    """确保论文解读结果目录存在"""
-    today = datetime.now()
-    date_dir = today.strftime("%y%m%d")
-    analysis_dir = os.path.join(PAPER_DATA_DIR, date_dir, "paper_analysis")
-    os.makedirs(analysis_dir, exist_ok=True)
-    return analysis_dir
-
-def ensure_pdf_download_dir():
-    """确保PDF下载目录存在"""
-    today = datetime.now()
-    date_dir = today.strftime("%y%m%d")
-    pdf_dir = os.path.join(PAPER_DATA_DIR, date_dir, "pdf_downloads")
-    os.makedirs(pdf_dir, exist_ok=True)
-    return pdf_dir
-
-def check_cache_exists(client, cache_tag):
-    """检查缓存标签是否已存在"""
+def get_deepseek_client():
+    """获取DeepSeek客户端"""
     try:
-        response = httpx.get(f"{client.base_url}caching/refs/tags/{cache_tag}",
-                           headers={
-                               "Authorization": f"Bearer {client.api_key}",
-                           })
-        return response.status_code == 200
-    except Exception as e:
-        logging.warning(f"检查缓存标签时出错: {e}")
-        return False
-
-def cleanup_expired_caches(client, cache_tags):
-    """清理过期的缓存标签"""
-    for cache_tag in cache_tags:
-        try:
-            # 获取标签对应的缓存信息
-            response = httpx.get(f"{client.base_url}caching/refs/tags/{cache_tag}/content",
-                               headers={
-                                   "Authorization": f"Bearer {client.api_key}",
-                               })
-            
-            if response.status_code == 200:
-                cache_info = response.json()
-                if cache_info.get('status') == 'inactive':
-                    # 删除过期的标签
-                    httpx.delete(f"{client.base_url}caching/refs/tags/{cache_tag}",
-                               headers={
-                                   "Authorization": f"Bearer {client.api_key}",
-                               })
-                    logging.info(f"已清理过期缓存标签: {cache_tag}")
-        except Exception as e:
-            logging.warning(f"清理缓存标签 {cache_tag} 时出错: {e}")
-
-def init_client():
-    """初始化OpenAI客户端"""
-    return OpenAI(
-        api_key=OTHER_API_KEY,
-        base_url=API_BASE_URL,
-    )
-
-def init_kimi_client():
-    """初始化Kimi客户端"""
-    return OpenAI(
-        api_key=KIMI_API_KEY,
-        base_url=KIMI_API_BASE_URL,
-    )
-
-def download_pdf(url, paper_id, pdf_dir):
-    """下载PDF文件"""
-    pdf_path = os.path.join(pdf_dir, f"{paper_id}.pdf")
-    
-    # 如果文件已存在，直接返回路径
-    if os.path.exists(pdf_path):
-        logging.info(f"PDF文件已存在: {pdf_path}")
-        return pdf_path
-    
-    try:
-        # 将abs链接转换为pdf链接
-        pdf_url = url.replace('/abs/', '/pdf/') + '.pdf'
-        logging.info(f"正在下载PDF: {pdf_url}")
+        config = get_config()
+        deepseek_config = config.get("llm", {}).get("deepseek", {})
         
-        response = requests.get(pdf_url, timeout=30)
-        response.raise_for_status()
+        if not deepseek_config.get("api_key"):
+            logging.error("DeepSeek API密钥未配置")
+            return None
         
-        with open(pdf_path, 'wb') as f:
-            f.write(response.content)
+        # DeepSeek R1使用不同的base_url格式
+        base_url = deepseek_config.get("base_url", "https://api.deepseek.com")
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
         
-        logging.info(f"PDF下载成功: {pdf_path}")
-        return pdf_path
+        client = OpenAI(
+            api_key=deepseek_config["api_key"],
+            base_url=base_url
+        )
+        
+        logging.info("DeepSeek客户端初始化成功")
+        return client
         
     except Exception as e:
-        logging.error(f"下载PDF失败 {paper_id}: {e}")
+        logging.error(f"初始化DeepSeek客户端失败: {e}")
         return None
 
-def upload_files_with_cache(client, files, cache_tag=None):
+def get_temperature_for_scenario(scenario: str) -> float:
     """
-    上传文件并创建上下文缓存
-    参考Kimi API文档的Context Caching功能
+    根据使用场景获取合适的temperature值
+    
+    Args:
+        scenario: 使用场景
+        
+    Returns:
+        float: 合适的temperature值
     """
-    messages = []
+    config = get_config()
+    temperature_config = config.get("llm", {}).get("temperature_by_scenario", {})
     
-    # 对每个文件路径，上传文件并抽取文件内容
-    for file in files:
-        try:
-            logging.info(f"正在上传文件: {file}")
-            file_object = client.files.create(file=Path(file), purpose="file-extract")
-            file_content = client.files.content(file_id=file_object.id).text
-            messages.append({
-                "role": "system",
-                "content": file_content,
-            })
-            logging.info(f"文件上传成功，ID: {file_object.id}")
-        except Exception as e:
-            logging.error(f"文件上传失败: {e}")
-            return None
-    
-    if cache_tag:
-        # 启用缓存，通过HTTP接口创建缓存
-        try:
-            r = httpx.post(f"{client.base_url}caching",
-                           headers={
-                               "Authorization": f"Bearer {client.api_key}",
-                           },
-                           json={
-                               "model": "moonshot-v1",
-                               "messages": messages,
-                               "ttl": 3600,  # 缓存1小时
-                               "tags": [cache_tag],
-                               "name": f"论文分析缓存_{cache_tag}",
-                               "description": f"论文 {cache_tag} 的PDF内容缓存，用于后续分析",
-                           })
-            
-            if r.status_code != 200:
-                logging.error(f"创建缓存失败: {r.text}")
-                return None
-            
-            cache_response = r.json()
-            cache_id = cache_response.get('id')
-            logging.info(f"缓存创建成功，ID: {cache_id}")
-            
-            # 为缓存创建标签引用
-            try:
-                tag_response = httpx.post(f"{client.base_url}caching/refs/tags",
-                                        headers={
-                                            "Authorization": f"Bearer {client.api_key}",
-                                        },
-                                        json={
-                                            "tag": cache_tag,
-                                            "cache_id": cache_id
-                                        })
-                
-                if tag_response.status_code == 200:
-                    logging.info(f"标签 {cache_tag} 创建成功")
-                else:
-                    logging.warning(f"标签创建失败: {tag_response.text}")
-            except Exception as e:
-                logging.warning(f"创建标签时出错: {e}")
-            
-            # 返回缓存引用消息（使用标签）
-            return [{
-                "role": "cache",
-                "content": f"tag={cache_tag};reset_ttl=3600",
-            }]
-            
-        except Exception as e:
-            logging.error(f"创建缓存时出错: {e}")
-            return None
-    else:
-        # 不启用缓存，直接返回文件内容消息
-        return messages
-
-def analyze_paper_with_kimi_cache(client, paper_info, cache_tag):
-    """使用Kimi缓存机制分析论文，支持多轮对话"""
-    logging.info(f"开始使用Kimi缓存分析论文: {paper_info.get('title', 'Unknown')}")
-    
-    analysis_result = {
-        "paper_id": paper_info.get('id'),
-        "title": paper_info.get('title'),
-        "authors": paper_info.get('authors'),
-        "subjects": paper_info.get('subjects'),
-        "original_abstract": paper_info.get('abstract'),
-        "url": paper_info.get('url'),
-        "analysis_time": datetime.now().isoformat(),
-        "kimi_analysis": {},
-        "cache_tag": cache_tag
+    # 场景化temperature配置
+    scenario_temperatures = {
+        "paper_relevance": 0.1,      # 论文相关性分析 - 需要一致性和准确性
+        "paper_analysis": 0.3,       # 论文内容分析 - 需要准确性和完整性
+        "report_generation": 0.7,    # 报告生成 - 需要一定的创造性但保持准确性
+        "general_conversation": 1.3, # 通用对话 - 需要灵活性和创造性
+        "creative_writing": 1.5,     # 创意写作 - 需要高创造性
+        "code_generation": 0.0,      # 代码生成 - 需要精确性
+        "data_extraction": 1.0,      # 数据抽取 - 需要准确性
+        "translation": 1.3,          # 翻译任务 - 需要灵活性
     }
     
-    # 构建系统消息
-    system_messages = [
-        {
-            "role": "system",
-            "content": "你是 Kimi，由 Moonshot AI 提供的人工智能助手，你更擅长中文和英文的对话。你会为用户提供安全，有帮助，准确的回答。同时，你会拒绝一切涉及恐怖主义，种族歧视，黄色暴力等问题的回答。Moonshot AI 为专有名词，不可翻译成其他语言。"
-        }
-    ]
+    # 从配置文件读取，如果没有则使用默认值
+    temperature = temperature_config.get(scenario, scenario_temperatures.get(scenario, 1.0))
     
-    # 初始化对话历史，用于多轮对话
-    conversation_messages = []
+    logging.info(f"场景 '{scenario}' 使用 temperature: {temperature}")
+    return temperature
+
+def get_api_config_with_scenario(scenario: str = "general"):
+    """
+    根据场景获取API配置，包括合适的temperature
     
-    # 逐个回答问题，利用多轮对话机制
-    for i, question in enumerate(ANALYSIS_QUESTIONS):
-        logging.info(f"正在回答问题 {i+1}/{len(ANALYSIS_QUESTIONS)}: {question}")
+    Args:
+        scenario: 使用场景
         
-        # 构建当前轮次的消息列表
-        current_messages = system_messages + conversation_messages + [
-            {
-                "role": "user", 
-                "content": f"请基于论文内容回答以下问题：{question}"
+    Returns:
+        Dict: API配置字典
+    """
+    try:
+        llm_config = config.get("llm", {})
+        provider = llm_config.get("provider", "kimi")
+        
+        if provider == "kimi":
+            kimi_config = llm_config.get("kimi", {})
+            return {
+                "api_key": kimi_config.get("api_key"),
+                "base_url": kimi_config.get("base_url", "https://api.moonshot.cn/v1"),
+                "model": kimi_config.get("model", "kimi-k2-0711-preview"),
+                "temperature": get_temperature_for_scenario(scenario),
+                "max_tokens": kimi_config.get("max_tokens", 4000)
             }
+        elif provider == "openai":
+            openai_config = llm_config.get("openai", {})
+            return {
+                "api_key": openai_config.get("api_key"),
+                "base_url": openai_config.get("base_url", "https://api.openai.com/v1"),
+                "model": openai_config.get("model", "gpt-4-turbo"),
+                "temperature": get_temperature_for_scenario(scenario),
+                "max_tokens": openai_config.get("max_tokens", 4000)
+            }
+        elif provider == "deepseek":
+            deepseek_config = llm_config.get("deepseek", {})
+            return {
+                "api_key": deepseek_config.get("api_key"),
+                "base_url": deepseek_config.get("base_url", "https://api.deepseek.com/v1"),
+                "model": deepseek_config.get("model", "deepseek-chat"),
+                "temperature": get_temperature_for_scenario(scenario),
+                "max_tokens": deepseek_config.get("max_tokens", 4000)
+            }
+        else:
+            logging.error(f"不支持的LLM提供商: {provider}")
+            return None
+    except Exception as e:
+        logging.error(f"获取API配置失败: {e}")
+        return None
+
+# ==================== 论文解读相关函数 ====================
+def analyze_paper_with_questions(paper_title: str, paper_abstract: str, pdf_content: str = None) -> Dict:
+    """
+    使用LLM分析论文，一次性回答所有问题，减少token消耗
+    
+    Args:
+        paper_title: 论文标题
+        paper_abstract: 论文摘要
+        pdf_content: PDF内容（可选）
+    
+    Returns:
+        Dict: 包含所有问题答案的字典
+    """
+    try:
+        # 根据配置选择客户端
+        config = get_config()
+        provider = config.get("llm", {}).get("provider", "deepseek")
+        
+        if provider == "deepseek":
+            client = get_deepseek_client()
+        elif provider == "kimi":
+            client = get_kimi_client()
+        elif provider == "openai":
+            client = get_openai_client()
+        else:
+            logging.error(f"不支持的LLM提供商: {provider}")
+            return {}
+        
+        if not client:
+            logging.error("无法获取LLM客户端")
+            return {}
+        
+        # 构建优化的prompt，一次性回答所有问题
+        if pdf_content:
+            prompt = f"""
+请分析以下论文，一次性回答所有6个问题。请严格按照JSON格式输出，不要添加任何其他内容。
+
+论文标题: {paper_title}
+论文摘要: {paper_abstract}
+PDF内容: {pdf_content[:2000]}...  # 限制PDF内容长度
+
+请按以下JSON格式回答所有问题:
+{{
+    "q1_main_content": "论文主要内容总结",
+    "q2_problem": "论文试图解决的具体问题",
+    "q3_related_work": "相关研究（结合PDF reference章节，给出具体论文标题）",
+    "q4_solution": "论文的解决方案和方法",
+    "q5_experiments": "实验设计和结论",
+    "q6_future_work": "可以进一步探索的方向"
+}}
+
+注意:
+1. 必须严格按照JSON格式输出
+2. 每个答案要简洁但完整
+3. 相关研究要结合PDF中的具体引用
+4. 不要添加序号、标题等额外格式
+"""
+        else:
+            prompt = f"""
+请分析以下论文，一次性回答所有6个问题。请严格按照JSON格式输出，不要添加任何其他内容。
+
+论文标题: {paper_title}
+论文摘要: {paper_abstract}
+
+请按以下JSON格式回答所有问题:
+{{
+    "q1_main_content": "论文主要内容总结",
+    "q2_problem": "论文试图解决的具体问题",
+    "q3_related_work": "相关研究（基于摘要内容分析）",
+    "q4_solution": "论文的解决方案和方法",
+    "q5_experiments": "实验设计和结论",
+    "q6_future_work": "可以进一步探索的方向"
+}}
+
+注意:
+1. 必须严格按照JSON格式输出
+2. 每个答案要简洁但完整
+3. 不要添加序号、标题等额外格式
+"""
+
+        # 根据提供商构建不同的API调用参数
+        if provider == "deepseek":
+            # DeepSeek R1特殊处理
+            api_params = {
+                "model": get_api_config_with_scenario("paper_analysis")["model"],
+                "messages": [
+                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家。请严格按照要求的JSON格式输出，不要添加任何其他内容。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": get_api_config_with_scenario("paper_analysis").get("max_tokens", 32000)
+                # 注意：DeepSeek R1不支持temperature、top_p等参数
+            }
+        else:
+            # 其他提供商使用标准参数
+            api_params = {
+                "model": get_api_config_with_scenario("paper_analysis")["model"],
+                "messages": [
+                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家。请严格按照要求的JSON格式输出，不要添加任何其他内容。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": get_temperature_for_scenario("paper_analysis"),
+                "max_tokens": get_api_config_with_scenario("paper_analysis").get("max_tokens", 4000)
+            }
+
+        # 调用LLM
+        response = client.chat.completions.create(**api_params)
+        
+        # 记录token使用量
+        if hasattr(response, 'usage') and response.usage:
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            model_name = get_api_config_with_scenario("paper_analysis")["model"] if get_api_config_with_scenario("paper_analysis") else "unknown"
+            token_tracker.add_usage(input_tokens, output_tokens, model_name)
+        
+        # 解析响应
+        if provider == "deepseek":
+            # DeepSeek R1特殊处理：同时获取reasoning_content和content
+            reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
+            content = response.choices[0].message.content.strip()
+            
+            if reasoning_content:
+                logging.info(f"DeepSeek R1推理过程: {reasoning_content[:200]}...")
+        else:
+            content = response.choices[0].message.content.strip()
+        
+        # 提取JSON部分
+        try:
+            json_start = content.find('{')
+            json_end = content.rfind('}') + 1
+            
+            if json_start != -1 and json_end != -1:
+                json_str = content[json_start:json_end]
+                result = json.loads(json_str)
+                
+                # 验证所有问题都有答案
+                required_keys = [
+                    "q1_main_content", "q2_problem", "q3_related_work",
+                    "q4_solution", "q5_experiments", "q6_future_work"
+                ]
+                
+                for key in required_keys:
+                    if key not in result or not result[key]:
+                        result[key] = "未提供答案"
+                
+                # 如果是DeepSeek R1，添加推理过程
+                if provider == "deepseek" and reasoning_content:
+                    result["reasoning_process"] = reasoning_content
+                
+                return result
+            else:
+                logging.warning("未找到JSON格式，尝试解析文本")
+                return _parse_text_response(content)
+                
+        except json.JSONDecodeError as e:
+            logging.warning(f"JSON解析失败: {e}，尝试解析文本")
+            return _parse_text_response(content)
+            
+    except Exception as e:
+        logging.error(f"LLM分析论文失败: {e}")
+        return {}
+
+def _parse_text_response(content: str) -> Dict:
+    """从LLM的文本响应中解析答案"""
+    try:
+        # 尝试从文本中提取答案
+        lines = content.split('\n')
+        result = {}
+        
+        # 简单的文本解析逻辑
+        current_question = None
+        current_answer = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # 检查是否是问题
+            if any(q in line.lower() for q in ["主要内容", "问题", "相关研究", "解决方案", "实验", "探索"]):
+                # 保存之前的答案
+                if current_question and current_answer:
+                    result[current_question] = " ".join(current_answer).strip()
+                
+                # 开始新问题
+                if "主要内容" in line:
+                    current_question = "q1_main_content"
+                elif "问题" in line:
+                    current_question = "q2_problem"
+                elif "相关研究" in line:
+                    current_question = "q3_related_work"
+                elif "解决方案" in line:
+                    current_question = "q4_solution"
+                elif "实验" in line:
+                    current_question = "q5_experiments"
+                elif "探索" in line:
+                    current_question = "q6_future_work"
+                
+                current_answer = []
+            else:
+                # 累积答案内容
+                if current_question:
+                    current_answer.append(line)
+        
+        # 保存最后一个答案
+        if current_question and current_answer:
+            result[current_question] = " ".join(current_answer).strip()
+        
+        # 确保所有问题都有答案
+        required_keys = [
+            "q1_main_content", "q2_problem", "q3_related_work",
+            "q4_solution", "q5_experiments", "q6_future_work"
         ]
         
-        try:
-            # 使用缓存调用API
-            resp = client.chat.completions.create(
-                model="kimi-k2-0711-preview",
-                messages=current_messages,
-                temperature=0.3,
-                extra_headers={
-                    "X-Msh-Context-Cache": cache_tag,
-                    "X-Msh-Context-Cache-Reset-TTL": "3600",
-                },
-            )
-            answer = resp.choices[0].message.content.strip()
-            
-            # 打印每个问题的回答，用于调试
-            print(f"\n{'='*50}")
-            print(f"问题 {i+1}: {question}")
-            print(f"回答: {answer}")
-            print(f"{'='*50}\n")
-            
-            # 将问答对添加到对话历史中，用于后续问题的上下文
-            conversation_messages.append({
-                "role": "user",
-                "content": f"请基于论文内容回答以下问题：{question}"
-            })
-            conversation_messages.append({
-                "role": "assistant", 
-                "content": answer
-            })
-            
-            # 控制对话历史长度，避免Token过多（保留最新的10轮对话）
-            if len(conversation_messages) > 20:  # 10轮问答 = 20条消息
-                conversation_messages = conversation_messages[-20:]
-            
-            analysis_result["kimi_analysis"][f"Q{i+1}"] = {
-                "question": question,
-                "answer": answer
-            }
-            
-            time.sleep(1)  # 避免API调用过于频繁
-            
-        except Exception as e:
-            logging.error(f"分析论文问题时出错: {e}")
-            answer = f"分析失败: {str(e)}"
-            analysis_result["kimi_analysis"][f"Q{i+1}"] = {
-                "question": question,
-                "answer": answer
-            }
-            
-            # 即使失败也要添加到对话历史中，保持一致性
-            conversation_messages.append({
-                "role": "user",
-                "content": f"请基于论文内容回答以下问题：{question}"
-            })
-            conversation_messages.append({
-                "role": "assistant", 
-                "content": answer
-            })
-    
-    logging.info(f"论文分析完成: {paper_info.get('title', 'Unknown')}")
-    return analysis_result
+        for key in required_keys:
+            if key not in result:
+                result[key] = "无法解析答案"
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"文本解析失败: {e}")
+        return {
+            "q1_main_content": "解析失败",
+            "q2_problem": "解析失败",
+            "q3_related_work": "解析失败",
+            "q4_solution": "解析失败",
+            "q5_experiments": "解析失败",
+            "q6_future_work": "解析失败"
+        }
 
 # ==================== 论文相关性分析 ====================
-def analyze_paper_relevance(title: str, abstract: str, research_areas: Dict[str, str], max_retries: int = 3) -> tuple:
+def analyze_paper_relevance(paper_title: str, paper_abstract: str, research_areas: Dict[str, str]) -> Dict:
     """
     使用LLM分析论文与研究领域的相关性
     
     Args:
-        title: 论文标题
-        abstract: 论文摘要
-        research_areas: 研究领域定义字典
-        max_retries: 最大重试次数
+        paper_title: 论文标题
+        paper_abstract: 论文摘要
+        research_areas: 研究领域定义
     
     Returns:
-        tuple: (相关性分数, 最佳匹配领域, 推理过程)
+        Dict: 包含相关性分析结果的字典
     """
-    for attempt in range(max_retries):
-        try:
+    try:
+        # 根据配置选择客户端
+        config = get_config()
+        provider = config.get("llm", {}).get("provider", "deepseek")
+        
+        if provider == "deepseek":
+            client = get_deepseek_client()
+        elif provider == "kimi":
             client = get_kimi_client()
-            if not client:
-                logging.error("无法获取LLM客户端")
-                return 0.0, "未知", "LLM客户端不可用"
-            
-            # 构建提示词
-            areas_description = "\n".join([f"- {area}: {desc}" for area, desc in research_areas.items()])
-            
-            prompt = f"""
+        elif provider == "openai":
+            client = get_openai_client()
+        else:
+            logging.error(f"不支持的LLM提供商: {provider}")
+            return {}
+        
+        if not client:
+            logging.error("无法获取LLM客户端")
+            return {}
+        
+        # 构建研究领域描述
+        areas_description = "\n".join([f"- {area}: {desc}" for area, desc in research_areas.items()])
+        
+        prompt = f"""
 请分析以下论文与我们关注的研究领域的相关性。
 
-论文标题: {title}
-论文摘要: {abstract}
+论文标题: {paper_title}
+论文摘要: {paper_abstract}
 
 我们关注的研究领域:
 {areas_description}
 
-请从以下角度分析:
-1. 论文内容与哪个研究领域最相关？
-2. 相关性程度如何？(0.0-1.0，1.0表示完全相关)
-3. 简要说明判断理由
+请分析这篇论文是否与我们的研究领域相关，并给出相关性评分（0-10分，10分表示高度相关）。
 
-请按以下JSON格式回答:
+请按以下JSON格式输出:
 {{
-    "relevance_score": 0.85,
-    "best_area": "大模型算法",
-    "reasoning": "论文主要讨论Transformer架构的改进，属于大模型算法领域"
+    "relevance_score": 相关性评分(0-10),
+    "relevance_reasoning": "相关性分析推理过程",
+    "best_match_area": "最匹配的研究领域",
+    "is_relevant": true/false,
+    "summary": "论文内容简要总结"
 }}
 
 注意:
-- 如果论文与硬件、芯片设计、工程实现等无关，请给出较低的相关性分数
-- 重点关注算法、方法、理论等核心AI研究内容
-- 相关性分数要客观准确
+1. 必须严格按照JSON格式输出
+2. 相关性评分要客观准确
+3. 推理过程要详细说明判断依据
+4. 如果论文涉及硬件、芯片设计、电路等非AI算法内容，请给出较低评分
 """
-
-            # 调用LLM
-            response = client.chat.completions.create(
-                model=get_api_config()["model"],
-                messages=[
-                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家，擅长判断论文与研究领域的相关性。"},
+        
+        # 根据提供商构建不同的API调用参数
+        if provider == "deepseek":
+            # DeepSeek R1特殊处理
+            api_params = {
+                "model": get_api_config_with_scenario("paper_relevance")["model"],
+                "messages": [
+                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家，擅长判断论文与研究领域的相关性。请严格按照要求的JSON格式输出。"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # 低温度确保一致性
-                max_tokens=500
-            )
-            
-            # 解析响应
+                "max_tokens": get_api_config_with_scenario("paper_relevance").get("max_tokens", 32000)
+                # 注意：DeepSeek R1不支持temperature、top_p等参数
+            }
+        else:
+            # 其他提供商使用标准参数
+            api_params = {
+                "model": get_api_config_with_scenario("paper_relevance")["model"],
+                "messages": [
+                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家，擅长判断论文与研究领域的相关性。请严格按照要求的JSON格式输出。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": get_temperature_for_scenario("paper_relevance"),
+                "max_tokens": get_api_config_with_scenario("paper_relevance").get("max_tokens", 4000)
+            }
+        
+        # 调用LLM
+        response = client.chat.completions.create(**api_params)
+        
+        # 记录token使用量
+        if hasattr(response, 'usage') and response.usage:
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            model_name = get_api_config_with_scenario("paper_relevance")["model"] if get_api_config_with_scenario("paper_relevance") else "unknown"
+            token_tracker.add_usage(input_tokens, output_tokens, model_name)
+        
+        # 解析响应
+        if provider == "deepseek":
+            # DeepSeek R1特殊处理：同时获取reasoning_content和content
+            reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
             content = response.choices[0].message.content.strip()
             
-            # 尝试提取JSON
-            try:
-                # 查找JSON部分
-                json_start = content.find('{')
-                json_end = content.rfind('}') + 1
-                if json_start != -1 and json_end != -1:
-                    json_str = content[json_start:json_end]
-                    result = json.loads(json_str)
-                    
-                    relevance_score = float(result.get("relevance_score", 0.0))
-                    best_area = result.get("best_area", "未知")
-                    reasoning = result.get("reasoning", "无推理说明")
-                    
-                    # 验证分数范围
-                    relevance_score = max(0.0, min(1.0, relevance_score))
-                    
-                    return relevance_score, best_area, reasoning
-                else:
-                    # 如果没有找到JSON，尝试从文本中提取信息
-                    return _extract_relevance_from_text(content, research_areas)
-                    
-            except json.JSONDecodeError:
-                logging.warning(f"LLM响应不是有效JSON，尝试从文本提取: {content}")
-                return _extract_relevance_from_text(content, research_areas)
-                
-        except Exception as e:
-            error_msg = str(e)
-            logging.warning(f"LLM分析论文相关性失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+            if reasoning_content:
+                logging.info(f"DeepSeek R1推理过程: {reasoning_content[:200]}...")
+        else:
+            content = response.choices[0].message.content.strip()
+        
+        # 提取JSON部分
+        try:
+            json_start = content.find('{')
+            json_end = content.rfind('}') + 1
             
-            # 检查是否是速率限制错误
-            if "rate_limit" in error_msg.lower() or "429" in error_msg:
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2  # 递增等待时间
-                    logging.info(f"遇到速率限制，等待 {wait_time} 秒后重试...")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    logging.error("达到最大重试次数，返回默认值")
-                    return 0.0, "未知", f"速率限制，重试失败: {error_msg}"
+            if json_start != -1 and json_end != -1:
+                json_str = content[json_start:json_end]
+                result = json.loads(json_str)
+                
+                # 验证必要字段
+                required_keys = ["relevance_score", "relevance_reasoning", "best_match_area", "is_relevant", "summary"]
+                for key in required_keys:
+                    if key not in result:
+                        result[key] = "未提供"
+                
+                # 如果是DeepSeek R1，添加推理过程
+                if provider == "deepseek" and reasoning_content:
+                    result["reasoning_process"] = reasoning_content
+                
+                return result
             else:
-                # 其他错误，直接返回
-                logging.error(f"LLM分析失败: {error_msg}")
-                return 0.0, "未知", f"分析失败: {error_msg}"
-    
-    # 所有重试都失败了
-    return 0.0, "未知", "所有重试都失败了"
+                logging.warning("未找到JSON格式，尝试解析文本")
+                return _parse_relevance_text_response(content)
+                
+        except json.JSONDecodeError as e:
+            logging.warning(f"JSON解析失败: {e}，尝试解析文本")
+            return _parse_relevance_text_response(content)
+            
+    except Exception as e:
+        logging.error(f"LLM分析论文相关性失败: {e}")
+        return {}
 
-def _extract_relevance_from_text(text: str, research_areas: Dict[str, str]) -> tuple:
+def _parse_relevance_text_response(content: str) -> Dict:
     """从LLM的文本响应中提取相关性信息"""
     try:
         # 尝试找到相关性分数
         import re
-        score_match = re.search(r'相关性.*?(\d+\.?\d*)', text)
+        score_match = re.search(r'相关性.*?(\d+\.?\d*)', content)
         relevance_score = float(score_match.group(1)) if score_match else 0.5
         
         # 尝试找到最佳匹配领域
         best_area = "未知"
         for area in research_areas.keys():
-            if area in text:
+            if area in content:
                 best_area = area
                 break
         
         # 提取推理过程
-        reasoning = text.split('\n')[-1] if text else "无法提取推理过程"
+        reasoning = content.split('\n')[-1] if content else "无法提取推理过程"
         
-        return relevance_score, best_area, reasoning
+        return {
+            "relevance_score": relevance_score,
+            "relevance_reasoning": reasoning,
+            "best_match_area": best_area,
+            "is_relevant": relevance_score > 5, # 假设分数大于5表示相关
+            "summary": content.split('\n')[-1] if content else "无法提取摘要"
+        }
         
     except Exception as e:
         logging.warning(f"从文本提取相关性信息失败: {e}")
-        return 0.5, "未知", "无法提取信息"
+        return {
+            "relevance_score": 0.5,
+            "relevance_reasoning": "无法提取信息",
+            "best_match_area": "未知",
+            "is_relevant": False,
+            "summary": "无法提取摘要"
+        }
 
 def load_paper_data():
     """加载爬取的论文数据"""
@@ -583,80 +777,173 @@ def save_analysis_results(analysis_results, analysis_dir):
             logging.error(f"保存 {category} 类别结果时出错: {e}")
 
 def main_paper_analysis():
-    """论文解读主函数"""
-    logging.info("开始论文解读流程...")
-    
-    # 确保目录存在并获取目录路径
-    analysis_dir = ensure_paper_analysis_dir()
-    pdf_dir = ensure_pdf_download_dir()
-    
-    logging.info(f"PDF下载目录: {pdf_dir}")
-    logging.info(f"分析结果目录: {analysis_dir}")
-    
-    # 初始化Kimi客户端
-    kimi_client = get_kimi_client()
-    
-    # 加载论文数据
-    papers = load_paper_data()
-    if not papers:
-        logging.error("没有找到论文数据，请检查数据目录")
-        return
-    
-    logging.info(f"开始分析 {len(papers)} 篇论文...")
-    
-    # 分析每篇论文
-    analysis_results = []
-    for i, paper in enumerate(papers):
-        try:
-            logging.info(f"进度: {i+1}/{len(papers)}")
-            
-            # 下载PDF
-            pdf_path = download_pdf(paper.get('url'), paper.get('id'), pdf_dir)
-            if not pdf_path:
-                logging.warning(f"跳过论文 {paper.get('id')}，PDF下载失败")
-                continue
-            
-            # 生成缓存标签（使用论文ID作为标签，更简洁易管理）
-            cache_tag = f"paper_{paper.get('id')}"
-            
-            # 检查缓存是否已存在
-            if check_cache_exists(kimi_client, cache_tag):
-                logging.info(f"缓存标签 {cache_tag} 已存在，跳过文件上传")
-                file_messages = [{
-                    "role": "cache",
-                    "content": f"tag={cache_tag};reset_ttl=3600",
-                }]
-            else:
-                # 上传文件到Kimi并创建缓存
-                file_messages = upload_files_with_cache(kimi_client, [pdf_path], cache_tag)
-                if not file_messages:
-                    logging.warning(f"跳过论文 {paper.get('id')}，文件上传或缓存创建失败")
-                    continue
-            
-            # 使用Kimi缓存机制分析论文
-            analysis_result = analyze_paper_with_kimi_cache(kimi_client, paper, cache_tag)
-            analysis_results.append(analysis_result)
-            
-            # 每分析10篇论文保存一次中间结果
-            if (i + 1) % 10 == 0:
-                logging.info(f"已分析 {i+1} 篇论文，保存中间结果...")
-                save_analysis_results(analysis_results, analysis_dir)
+    """
+    主要的论文分析函数 - 优化版本，减少token消耗
+    """
+    try:
+        # 加载论文数据
+        papers = load_paper_data()
+        if not papers:
+            logging.warning("没有找到论文数据")
+            return
+        
+        logging.info(f"开始分析 {len(papers)} 篇论文")
+        
+        # 获取当前日期
+        date_str = datetime.now().strftime("%y%m%d")
+        
+        # 创建分析结果目录
+        analysis_dir = f"./{date_str}/paper_analysis"
+        os.makedirs(analysis_dir, exist_ok=True)
+        
+        all_analysis_results = []
+        
+        for i, paper in enumerate(papers, 1):
+            try:
+                logging.info(f"分析论文 {i}/{len(papers)}: {paper.get('title', 'Unknown')[:50]}...")
                 
-        except Exception as e:
-            logging.error(f"分析论文 {paper.get('id', 'Unknown')} 时出错: {e}")
-            continue
+                # 使用优化的分析方法，一次性回答所有问题
+                analysis_result = analyze_paper_with_questions(
+                    paper_title=paper.get('title', ''),
+                    paper_abstract=paper.get('abstract', ''),
+                    pdf_content=None  # 暂时不使用PDF内容，减少token消耗
+                )
+                
+                if analysis_result:
+                    # 添加论文基本信息
+                    analysis_result.update({
+                        'paper_id': paper.get('id', ''),
+                        'paper_title': paper.get('title', ''),
+                        'paper_url': paper.get('url', ''),
+                        'analysis_time': datetime.now().isoformat(),
+                        'llm_provider': get_api_config_with_scenario("paper_analysis")["model"] if get_api_config_with_scenario("paper_analysis") else "unknown"
+                    })
+                    
+                    all_analysis_results.append(analysis_result)
+                    
+                    # 保存单篇论文的分析结果
+                    paper_filename = f"paper_analysis_{paper.get('id', f'paper_{i}')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    paper_filepath = os.path.join(analysis_dir, paper_filename)
+                    
+                    with open(paper_filepath, 'w', encoding='utf-8') as f:
+                        json.dump(analysis_result, f, ensure_ascii=False, indent=2)
+                    
+                    logging.info(f"论文分析完成: {paper_filename}")
+                    
+                    # 添加延迟避免API限制
+                    time.sleep(2)
+                else:
+                    logging.warning(f"论文 {i} 分析失败")
+                
+            except Exception as e:
+                logging.error(f"分析论文 {i} 时出错: {e}")
+                continue
+        
+        # 保存所有分析结果
+        if all_analysis_results:
+            all_results_filename = f"all_paper_analysis_{date_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            all_results_filepath = os.path.join(analysis_dir, all_results_filename)
+            
+            with open(all_results_filepath, 'w', encoding='utf-8') as f:
+                json.dump(all_analysis_results, f, ensure_ascii=False, indent=2)
+            
+            logging.info(f"所有论文分析完成，结果保存到: {all_results_filepath}")
+            logging.info(f"成功分析 {len(all_analysis_results)} 篇论文")
+        else:
+            logging.warning("没有成功分析的论文")
+        
+        # 显示和保存token使用量统计
+        token_tracker.print_summary()
+        token_usage_filename = os.path.join(analysis_dir, f"token_usage_{date_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        token_tracker.save_summary(token_usage_filename)
+            
+    except Exception as e:
+        logging.error(f"论文分析过程中出错: {e}")
+        # 即使出错也要显示token统计
+        token_tracker.print_summary()
+        raise
+
+# ==================== Token统计相关函数 ====================
+def get_token_usage_summary() -> Dict:
+    """获取当前token使用量摘要"""
+    return token_tracker.get_summary()
+
+def print_token_usage_summary():
+    """打印当前token使用量摘要"""
+    token_tracker.print_summary()
+
+def save_token_usage_summary(filename: str = None):
+    """保存当前token使用量摘要到文件"""
+    token_tracker.save_summary(filename)
+
+def reset_token_tracker():
+    """重置token跟踪器"""
+    global token_tracker
+    token_tracker = TokenUsageTracker()
+    logging.info("Token跟踪器已重置")
+
+def estimate_text_tokens(text: str, language: str = "auto") -> int:
+    """
+    估算文本的token数量
     
-    # 保存最终结果
-    logging.info("所有论文分析完成，保存最终结果...")
-    save_analysis_results(analysis_results, analysis_dir)
+    Args:
+        text: 要估算的文本
+        language: 语言类型 ("auto", "chinese", "english")
     
-    # 清理过期的缓存标签
-    cache_tags = [result.get('cache_tag') for result in analysis_results if result.get('cache_tag')]
-    if cache_tags:
-        logging.info("开始清理过期缓存标签...")
-        cleanup_expired_caches(kimi_client, cache_tags)
+    Returns:
+        int: 估算的token数量
+    """
+    if not text:
+        return 0
     
-    logging.info(f"论文解读流程完成，共分析了 {len(analysis_results)} 篇论文")
+    # 自动检测语言
+    if language == "auto":
+        chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+        english_chars = sum(1 for char in text if char.isascii() and char.isalpha())
+        
+        if chinese_chars > english_chars:
+            language = "chinese"
+        else:
+            language = "english"
+    
+    # 根据语言估算token数量
+    if language == "chinese":
+        # 中文字符：1个字符 ≈ 0.6个token
+        return int(len(text) * 0.6)
+    elif language == "english":
+        # 英文字符：1个字符 ≈ 0.3个token
+        return int(len(text) * 0.3)
+    else:
+        # 混合语言：取平均值
+        return int(len(text) * 0.45)
+
+def analyze_prompt_tokens(prompt: str) -> Dict:
+    """
+    分析prompt的token使用情况
+    
+    Args:
+        prompt: 要分析的prompt
+    
+    Returns:
+        Dict: 包含token分析信息的字典
+    """
+    total_chars = len(prompt)
+    estimated_tokens = estimate_text_tokens(prompt)
+    
+    # 分析中英文比例
+    chinese_chars = sum(1 for char in prompt if '\u4e00' <= char <= '\u9fff')
+    english_chars = sum(1 for char in prompt if char.isascii() and char.isalpha())
+    other_chars = total_chars - chinese_chars - english_chars
+    
+    return {
+        "total_characters": total_chars,
+        "chinese_characters": chinese_chars,
+        "english_characters": english_chars,
+        "other_characters": other_chars,
+        "estimated_tokens": estimated_tokens,
+        "chinese_ratio": chinese_chars / total_chars if total_chars > 0 else 0,
+        "english_ratio": english_chars / total_chars if total_chars > 0 else 0
+    }
 
 # ==================== 主执行流程 ====================
 if __name__ == '__main__':

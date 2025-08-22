@@ -147,38 +147,34 @@ crawler:
 # ==================== LLM API配置 ====================
 llm:
   # API提供商: "kimi", "openai", "deepseek"
-  provider: "kimi"
+  provider: "deepseek"
   
   # Kimi API配置
   kimi:
-    api_key: "your_kimi_api_key_here"  # 替换为你的实际API密钥
+    api_key: "your_kimi_api_key_here"
     base_url: "https://api.moonshot.cn/v1"
     model: "kimi-k2-0711-preview"
-    temperature: 0.3
+    temperature: 1.0  # 默认值
     max_tokens: 4000
   
   # OpenAI API配置
   openai:
-    api_key: "your_openai_api_key_here"  # 替换为你的实际API密钥
+    api_key: "your_openai_api_key_here"
     base_url: "https://api.openai.com/v1"
-    model: "gpt-4-turbo"
-    temperature: 0.3
+    model: "gpt-4o-mini"
+    temperature: 1.0  # 默认值
     max_tokens: 4000
   
   # DeepSeek API配置
   deepseek:
-    api_key: "your_deepseek_api_key_here"  # 替换为你的实际API密钥
-    base_url: "https://api.deepseek.com/v1"
-    model: "deepseek-chat"
-    temperature: 0.3
-    max_tokens: 4000
+    api_key: "your_deepseek_api_key_here"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-reasoner"  # 使用R1推理模型
+    max_tokens: 32000  # DeepSeek R1默认32K，最大64K
+    # 注意：DeepSeek R1不支持temperature、top_p等参数
   
   # 分析配置
   analysis:
-    # 是否启用多轮对话
-    enable_multi_turn: true
-    # 对话历史最大长度
-    max_conversation_length: 20
     # 问题列表
     questions:
       - "总结一下论文的主要内容"
@@ -187,15 +183,6 @@ llm:
       - "论文如何解决这个问题？"
       - "论文做了哪些实验？实验结论如何？"
       - "有什么可以进一步探索的点？"
-  
-  # 缓存配置
-  cache:
-    # 是否启用缓存
-    enabled: true
-    # 缓存有效期（秒）
-    ttl: 3600
-    # 是否自动清理过期缓存
-    auto_cleanup: true
 
 # ==================== 邮件配置 ====================
 email:

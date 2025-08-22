@@ -56,3 +56,5 @@ poetry.lock
 # 其他
 *.bak
 *.backup 
+
+*.json

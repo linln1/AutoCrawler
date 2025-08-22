@@ -45,16 +45,15 @@ RESEARCH_AREAS = {
     "大模型应用": "大模型在实际应用中的部署、优化、效果提升等",
     "智能体系统": "多智能体系统、自主智能体、智能体协作等",
     "强化学习": "强化学习算法、策略优化、多智能体强化学习等",
-    "多模态AI": "视觉语言模型、图像文本理解、音频视觉融合等",
+    "多模态大模型": "视觉语言模型、视频模型、音频模型、多模态大模型等",
     "模型微调": "LoRA、QLoRA、Adapter等参数高效微调方法",
     "检索增强生成": "RAG系统、知识检索、检索增强的生成等",
-    "AI对齐": "AI安全性、价值观对齐、指令微调等",
     "大模型训练基础设施": "大模型训练基础设施、大模型训练框架、大模型训练平台等",
     "大模型推理基础设施": "大模型推理基础设施、大模型推理框架、大模型推理平台等",
     "大模型推理算法": "大模型推理算法、大模型推理框架、大模型推理平台等",
     "大模型训练数据构造方法":"预训练数据构造方法、数据增强方法、数据清洗方法等",
     "微调数据构造方法":"微调数据构造方法、数据增强方法、数据清洗方法等",
-    "后训练数据构造方法":"后训练数据构造方法、数据增强方法、数据清洗方法等",
+    "后训练数据构造方法":"后训练数据构造方法、数据增强方法、数据清洗方法等"
 }
 
 # 保留关键词过滤作为备用方案
@@ -307,46 +306,88 @@ class CSPaperCrawler:
             return self._filter_papers_with_keywords(papers)
     
     def _filter_papers_with_llm(self, papers: List[Dict]) -> List[Dict]:
-        """使用LLM进行语义过滤"""
-        self.logger.info(f"使用LLM语义过滤 {len(papers)} 篇论文...")
+        """使用LLM语义过滤论文"""
+        if not papers:
+            return []
         
+        self.logger.info(f"开始使用LLM语义过滤 {len(papers)} 篇论文...")
+        
+        # 获取LLM过滤配置
+        llm_config = self.config.get("llm_filter", {})
+        batch_size = llm_config.get("batch_size", 5)
+        relevance_threshold = llm_config.get("relevance_threshold", 0.7)
+        request_interval = llm_config.get("request_interval", 2)
+        
+        # 分批处理论文
         filtered_papers = []
-        batch_size = self.llm_batch_size
-        threshold = self.relevance_threshold
+        total_batches = (len(papers) + batch_size - 1) // batch_size
         
-        # 批量处理论文
-        for i in range(0, len(papers), batch_size):
-            batch = papers[i:i + batch_size]
-            self.logger.info(f"处理批次 {i//batch_size + 1}/{(len(papers) + batch_size - 1)//batch_size}")
+        for batch_idx in range(0, len(papers), batch_size):
+            batch = papers[batch_idx:batch_idx + 1]  # 每次只处理1篇论文，避免API限制
+            current_batch = (batch_idx // batch_size) + 1
+            
+            self.logger.info(f"处理批次 {current_batch}/{total_batches}，包含 {len(batch)} 篇论文")
             
             for paper in batch:
                 try:
-                    # 使用LLM判断论文相关性
-                    relevance_score, best_area, reasoning = analyze_paper_relevance(
-                        paper.get("title", ""),
-                        paper.get("abstract", ""),
-                        RESEARCH_AREAS
+                    self.logger.info(f"分析论文: {paper.get('title', 'Unknown')[:50]}...")
+                    
+                    # 调用LLM分析相关性
+                    relevance_result = analyze_paper_relevance(
+                        paper_title=paper.get('title', ''),
+                        paper_abstract=paper.get('abstract', ''),
+                        research_areas=RESEARCH_AREAS
                     )
                     
-                    if relevance_score >= threshold:
-                        paper["relevance_score"] = relevance_score
-                        paper["matched_area"] = best_area
-                        paper["reasoning"] = reasoning
-                        filtered_papers.append(paper)
-                        self.logger.info(f"论文 '{paper.get('title', 'Unknown')[:50]}...' 相关性: {relevance_score:.2f}, 领域: {best_area}")
+                    if relevance_result:
+                        # 获取相关性分数
+                        relevance_score = float(relevance_result.get("relevance_score", 0))
+                        best_match_area = relevance_result.get("best_match_area", "未知")
+                        reasoning = relevance_result.get("relevance_reasoning", "无推理说明")
+                        
+                        # 记录分析结果
+                        paper['llm_analysis'] = {
+                            'relevance_score': relevance_score,
+                            'best_match_area': best_match_area,
+                            'reasoning': reasoning,
+                            'is_relevant': relevance_result.get("is_relevant", False),
+                            'summary': relevance_result.get("summary", "")
+                        }
+                        
+                        # 判断是否相关
+                        if relevance_score >= relevance_threshold:
+                            filtered_papers.append(paper)
+                            self.logger.info(f"✅ 论文相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
+                        else:
+                            self.logger.info(f"❌ 论文不相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
+                            self.logger.debug(f"推理过程: {reasoning}")
                     else:
-                        self.logger.debug(f"论文 '{paper.get('title', 'Unknown')[:50]}...' 相关性不足: {relevance_score:.2f}")
+                        # LLM分析失败，使用关键词过滤作为备选
+                        self.logger.warning("LLM分析失败，使用关键词过滤作为备选")
+                        if self.config.get("llm_filter", {}).get("enable_fallback", True):
+                            if self._check_paper_relevance_with_keywords(paper):
+                                filtered_papers.append(paper)
+                                self.logger.info("✅ 关键词过滤通过")
+                            else:
+                                self.logger.info("❌ 关键词过滤不通过")
+                        else:
+                            self.logger.info("❌ 关键词过滤未启用，论文被排除")
                     
-                    # 添加延迟避免API限制
-                    time.sleep(self.request_interval)
-                    
+                    # 添加请求间隔，避免API限制
+                    if request_interval > 0:
+                        time.sleep(request_interval)
+                        
                 except Exception as e:
-                    self.logger.warning(f"LLM分析论文失败: {e}")
-                    # 如果LLM分析失败，使用关键词过滤作为备用
-                    if self._check_paper_relevance_with_keywords(paper):
-                        paper["matched_area"] = "关键词匹配(备用)"
-                        paper["relevance_score"] = 0.5
-                        filtered_papers.append(paper)
+                    self.logger.error(f"分析论文相关性失败: {e}")
+                    # 如果LLM分析失败，根据配置决定是否使用关键词过滤作为备选
+                    if self.config.get("llm_filter", {}).get("enable_fallback", True):
+                        if self._check_paper_relevance_with_keywords(paper):
+                            filtered_papers.append(paper)
+                            self.logger.info("✅ 关键词过滤通过（LLM分析失败后的备选）")
+                        else:
+                            self.logger.info("❌ 关键词过滤不通过（LLM分析失败后的备选）")
+                    else:
+                        self.logger.info("❌ 关键词过滤未启用，论文被排除")
         
         self.logger.info(f"LLM语义过滤完成，从 {len(papers)} 篇论文中筛选出 {len(filtered_papers)} 篇相关论文")
         return filtered_papers
