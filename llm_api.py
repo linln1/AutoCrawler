@@ -5,6 +5,7 @@ import logging
 import glob
 import requests
 import httpx
+import base64
 from datetime import datetime
 from openai import OpenAI
 from pathlib import Path
@@ -42,16 +43,17 @@ class TokenUsageTracker:
     
     def _estimate_cost(self, input_tokens: int, output_tokens: int, model: str) -> float:
         """估算API调用成本"""
-        # 基于常见模型的定价（每1000 tokens的价格）
+        # 基于常见模型的定价（每1000 tokens）
         pricing = {
-            "gpt-4": {"input": 0.03, "output": 0.06},
-            "gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},
-            "kimi-k2-0711-preview": {"input": 0.002, "output": 0.004},  # 估算
-            "deepseek-chat": {"input": 0.001, "output": 0.002},  # 估算
-            "unknown": {"input": 0.002, "output": 0.004}  # 默认估算
+            "deepseek-reasoner": {"input": 0.0007, "output": 0.0014},  # DeepSeek R1
+            "kimi-k2-0711-preview": {"input": 0.0007, "output": 0.0014},  # Kimi
+            "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},  # OpenAI
+            "gpt-4-turbo": {"input": 0.01, "output": 0.03},  # OpenAI GPT-4
         }
         
-        model_pricing = pricing.get(model, pricing["unknown"])
+        # 获取模型定价，如果没有则使用默认值
+        model_pricing = pricing.get(model, {"input": 0.001, "output": 0.002})
+        
         input_cost = (input_tokens / 1000) * model_pricing["input"]
         output_cost = (output_tokens / 1000) * model_pricing["output"]
         
@@ -59,24 +61,27 @@ class TokenUsageTracker:
     
     def get_summary(self) -> Dict:
         """获取使用量摘要"""
-        duration = datetime.now() - self.start_time
+        end_time = datetime.now()
+        duration = (end_time - self.start_time).total_seconds()
+        
         return {
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_tokens": self.total_input_tokens + self.total_output_tokens,
             "api_calls": self.api_calls,
             "total_cost_estimate": self.total_cost_estimate,
-            "duration_seconds": duration.total_seconds(),
+            "duration_seconds": duration,
             "start_time": self.start_time.isoformat(),
-            "end_time": datetime.now().isoformat()
+            "end_time": end_time.isoformat()
         }
     
     def print_summary(self):
         """打印使用量摘要"""
         summary = self.get_summary()
-        print("\n" + "="*60)
+        
+        print("=" * 60)
         print("📊 Token使用量统计")
-        print("="*60)
+        print("=" * 60)
         print(f"总输入Token: {summary['total_input_tokens']:,}")
         print(f"总输出Token: {summary['total_output_tokens']:,}")
         print(f"总Token: {summary['total_tokens']:,}")
@@ -85,18 +90,31 @@ class TokenUsageTracker:
         print(f"运行时长: {summary['duration_seconds']:.1f} 秒")
         print(f"开始时间: {summary['start_time']}")
         print(f"结束时间: {summary['end_time']}")
-        print("="*60)
+        print("=" * 60)
     
     def save_summary(self, filename: str = None):
         """保存使用量摘要到文件"""
-        if filename is None:
-            filename = f"token_usage_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        if not filename:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"token_usage_summary_{timestamp}.json"
         
         summary = self.get_summary()
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
         
-        logging.info(f"Token使用量统计已保存到: {filename}")
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+            logging.info(f"Token使用量摘要已保存到: {filename}")
+        except Exception as e:
+            logging.error(f"保存Token使用量摘要失败: {e}")
+    
+    def reset_tracker(self):
+        """重置跟踪器"""
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost_estimate = 0.0
+        self.api_calls = 0
+        self.start_time = datetime.now()
+        logging.info("Token使用量跟踪器已重置")
 
 # 全局token跟踪器
 token_tracker = TokenUsageTracker()
@@ -310,14 +328,16 @@ def get_api_config_with_scenario(scenario: str = "general"):
         return None
 
 # ==================== 论文解读相关函数 ====================
-def analyze_paper_with_questions(paper_title: str, paper_abstract: str, pdf_content: str = None) -> Dict:
+def analyze_paper_with_questions(paper_title: str, paper_abstract: str, paper_url: str = None, paper_id: str = None, save_results: bool = True) -> Dict:
     """
     使用LLM分析论文，一次性回答所有问题，减少token消耗
     
     Args:
         paper_title: 论文标题
         paper_abstract: 论文摘要
-        pdf_content: PDF内容（可选）
+        paper_url: 论文URL（用于下载PDF）
+        paper_id: 论文ID（用于保存结果）
+        save_results: 是否保存分析结果到文件
     
     Returns:
         Dict: 包含所有问题答案的字典
@@ -341,14 +361,61 @@ def analyze_paper_with_questions(paper_title: str, paper_abstract: str, pdf_cont
             logging.error("无法获取LLM客户端")
             return {}
         
+        # 尝试下载PDF文件
+        pdf_path = None
+        pdf_content = None
+        
+        if paper_url and paper_id:
+            try:
+                pdf_path = download_pdf(paper_url, paper_id)
+                if pdf_path:
+                    logging.info(f"PDF下载成功: {pdf_path}")
+                    # 对于DeepSeek，我们可以尝试使用文件上传功能
+                    if provider == "deepseek":
+                        # 检查文件大小，如果太大则使用base64编码
+                        file_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
+                        if file_size_mb > 20:  # 如果PDF大于20MB，使用base64编码
+                            pdf_content = encode_pdf_to_base64(pdf_path)
+                            logging.info(f"PDF文件较大，使用base64编码 (大小: {file_size_mb:.1f}MB)")
+                        else:
+                            logging.info(f"PDF文件大小适中，可以直接使用 (大小: {file_size_mb:.1f}MB)")
+                else:
+                    logging.warning("PDF下载失败，将仅使用摘要进行分析")
+            except Exception as e:
+                logging.warning(f"PDF处理失败: {e}，将仅使用摘要进行分析")
+        
         # 构建优化的prompt，一次性回答所有问题
-        if pdf_content:
+        if pdf_path and pdf_content:
             prompt = f"""
 请分析以下论文，一次性回答所有6个问题。请严格按照JSON格式输出，不要添加任何其他内容。
 
 论文标题: {paper_title}
 论文摘要: {paper_abstract}
-PDF内容: {pdf_content[:2000]}...  # 限制PDF内容长度
+PDF内容: [已提供PDF文件，请仔细阅读全文内容]
+
+请按以下JSON格式回答所有问题:
+{{
+    "q1_main_content": "论文主要内容总结",
+    "q2_problem": "论文试图解决的具体问题",
+    "q3_related_work": "相关研究（结合PDF reference章节，给出具体论文标题）",
+    "q4_solution": "论文的解决方案和方法",
+    "q5_experiments": "实验设计和结论",
+    "q6_future_work": "可以进一步探索的方向"
+}}
+
+注意:
+1. 必须严格按照JSON格式输出
+2. 每个答案要简洁但完整
+3. 相关研究要结合PDF中的具体引用
+4. 不要添加序号、标题等额外格式
+"""
+        elif pdf_path:
+            prompt = f"""
+请分析以下论文，一次性回答所有6个问题。请严格按照JSON格式输出，不要添加任何其他内容。
+
+论文标题: {paper_title}
+论文摘要: {paper_abstract}
+PDF文件: [已提供PDF文件，请仔细阅读全文内容]
 
 请按以下JSON格式回答所有问题:
 {{
@@ -392,12 +459,28 @@ PDF内容: {pdf_content[:2000]}...  # 限制PDF内容长度
         # 根据提供商构建不同的API调用参数
         if provider == "deepseek":
             # DeepSeek R1特殊处理
+            messages = [
+                {"role": "system", "content": "你是一个专业的AI研究论文分析专家。请严格按照要求的JSON格式输出，不要添加任何其他内容。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            # 如果有PDF文件，尝试添加到消息中
+            if pdf_path:
+                try:
+                    # 对于DeepSeek，我们可以尝试使用文件上传
+                    # 注意：这里需要根据DeepSeek的具体API文档来调整
+                    if pdf_content:
+                        # 如果PDF太大，在prompt中说明
+                        messages[1]["content"] += f"\n\n注意：由于PDF文件较大，请基于摘要和标题进行分析。"
+                    else:
+                        # 如果PDF适中，可以尝试直接使用
+                        messages[1]["content"] += f"\n\n注意：请基于提供的PDF文件内容进行分析。"
+                except Exception as e:
+                    logging.warning(f"PDF文件处理失败: {e}")
+            
             api_params = {
                 "model": get_api_config_with_scenario("paper_analysis")["model"],
-                "messages": [
-                    {"role": "system", "content": "你是一个专业的AI研究论文分析专家。请严格按照要求的JSON格式输出，不要添加任何其他内容。"},
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": messages,
                 "max_tokens": get_api_config_with_scenario("paper_analysis").get("max_tokens", 32000)
                 # 注意：DeepSeek R1不支持temperature、top_p等参数
             }
@@ -453,9 +536,24 @@ PDF内容: {pdf_content[:2000]}...  # 限制PDF内容长度
                     if key not in result or not result[key]:
                         result[key] = "未提供答案"
                 
+                # 添加论文基本信息
+                result.update({
+                    'paper_title': paper_title,
+                    'paper_abstract': paper_abstract,
+                    'paper_url': paper_url,
+                    'paper_id': paper_id,
+                    'analysis_time': datetime.now().isoformat(),
+                    'llm_provider': provider,
+                    'pdf_used': pdf_path is not None
+                })
+                
                 # 如果是DeepSeek R1，添加推理过程
                 if provider == "deepseek" and reasoning_content:
                     result["reasoning_process"] = reasoning_content
+                
+                # 保存分析结果
+                if save_results and paper_id:
+                    save_analysis_result(result, paper_id)
                 
                 return result
             else:
@@ -776,6 +874,107 @@ def save_analysis_results(analysis_results, analysis_dir):
         except Exception as e:
             logging.error(f"保存 {category} 类别结果时出错: {e}")
 
+def save_analysis_result(result: Dict, paper_id: str):
+    """
+    保存分析结果到文件
+    
+    Args:
+        result: 分析结果字典
+        paper_id: 论文ID
+    """
+    try:
+        # 创建保存目录
+        today = datetime.now().strftime("%y%m%d")
+        save_dir = os.path.join(PAPER_DATA_DIR, today, "analysis_results")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 生成文件名
+        timestamp = datetime.now().strftime("%H%M%S")
+        filename = f"analysis_{paper_id}_{timestamp}.json"
+        filepath = os.path.join(save_dir, filename)
+        
+        # 保存结果
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        
+        logging.info(f"分析结果已保存: {filepath}")
+        
+        # 同时保存到汇总文件（追加模式）
+        summary_file = os.path.join(save_dir, f"analysis_summary_{today}.json")
+        save_to_summary_file(result, summary_file)
+        
+    except Exception as e:
+        logging.error(f"保存分析结果失败: {e}")
+
+def save_to_summary_file(result: Dict, summary_file: str):
+    """
+    将分析结果追加到汇总文件
+    
+    Args:
+        result: 分析结果字典
+        summary_file: 汇总文件路径
+    """
+    try:
+        # 读取现有汇总文件
+        existing_results = []
+        if os.path.exists(summary_file):
+            try:
+                with open(summary_file, 'r', encoding='utf-8') as f:
+                    existing_results = json.load(f)
+                if not isinstance(existing_results, list):
+                    existing_results = []
+            except Exception as e:
+                logging.warning(f"读取汇总文件失败: {e}，将创建新文件")
+                existing_results = []
+        
+        # 检查是否已存在相同论文ID的结果
+        paper_id = result.get('paper_id')
+        if paper_id:
+            # 移除旧的结果
+            existing_results = [r for r in existing_results if r.get('paper_id') != paper_id]
+        
+        # 添加新结果
+        existing_results.append(result)
+        
+        # 保存汇总文件
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(existing_results, f, ensure_ascii=False, indent=2)
+        
+        logging.info(f"分析结果已追加到汇总文件: {summary_file} (总计: {len(existing_results)} 篇)")
+        
+    except Exception as e:
+        logging.error(f"保存到汇总文件失败: {e}")
+
+def load_analysis_results(date_str: str = None) -> List[Dict]:
+    """
+    加载指定日期的分析结果
+    
+    Args:
+        date_str: 日期字符串（格式：YYMMDD），如果为None则使用今天
+    
+    Returns:
+        List[Dict]: 分析结果列表
+    """
+    try:
+        if not date_str:
+            date_str = datetime.now().strftime("%y%m%d")
+        
+        summary_file = os.path.join(PAPER_DATA_DIR, date_str, "analysis_results", f"analysis_summary_{date_str}.json")
+        
+        if not os.path.exists(summary_file):
+            logging.info(f"汇总文件不存在: {summary_file}")
+            return []
+        
+        with open(summary_file, 'r', encoding='utf-8') as f:
+            results = json.load(f)
+        
+        logging.info(f"成功加载分析结果: {summary_file} (总计: {len(results)} 篇)")
+        return results
+        
+    except Exception as e:
+        logging.error(f"加载分析结果失败: {e}")
+        return []
+
 def main_paper_analysis():
     """
     主要的论文分析函数 - 优化版本，减少token消耗
@@ -806,7 +1005,9 @@ def main_paper_analysis():
                 analysis_result = analyze_paper_with_questions(
                     paper_title=paper.get('title', ''),
                     paper_abstract=paper.get('abstract', ''),
-                    pdf_content=None  # 暂时不使用PDF内容，减少token消耗
+                    paper_url=paper.get('url'), # 传递URL
+                    paper_id=paper.get('id'), # 传递ID
+                    save_results=True # 保存结果
                 )
                 
                 if analysis_result:
@@ -882,68 +1083,130 @@ def reset_token_tracker():
     token_tracker = TokenUsageTracker()
     logging.info("Token跟踪器已重置")
 
-def estimate_text_tokens(text: str, language: str = "auto") -> int:
+# ==================== PDF处理函数 ====================
+def download_pdf(url: str, paper_id: str, pdf_dir: str = None) -> Optional[str]:
     """
-    估算文本的token数量
+    下载PDF文件
     
     Args:
-        text: 要估算的文本
-        language: 语言类型 ("auto", "chinese", "english")
+        url: 论文URL
+        paper_id: 论文ID
+        pdf_dir: PDF保存目录，如果为None则使用默认目录
     
     Returns:
-        int: 估算的token数量
+        str: PDF文件路径，如果下载失败返回None
     """
-    if not text:
-        return 0
-    
-    # 自动检测语言
-    if language == "auto":
-        chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
-        english_chars = sum(1 for char in text if char.isascii() and char.isalpha())
+    try:
+        if not pdf_dir:
+            # 使用默认目录
+            today = datetime.now().strftime("%y%m%d")
+            pdf_dir = os.path.join(PAPER_DATA_DIR, today, "pdf_downloads")
         
-        if chinese_chars > english_chars:
-            language = "chinese"
-        else:
-            language = "english"
-    
-    # 根据语言估算token数量
-    if language == "chinese":
-        # 中文字符：1个字符 ≈ 0.6个token
-        return int(len(text) * 0.6)
-    elif language == "english":
-        # 英文字符：1个字符 ≈ 0.3个token
-        return int(len(text) * 0.3)
-    else:
-        # 混合语言：取平均值
-        return int(len(text) * 0.45)
+        # 确保目录存在
+        os.makedirs(pdf_dir, exist_ok=True)
+        
+        pdf_path = os.path.join(pdf_dir, f"{paper_id}.pdf")
+        
+        # 如果文件已存在，直接返回路径
+        if os.path.exists(pdf_path):
+            logging.info(f"PDF文件已存在: {pdf_path}")
+            return pdf_path
+        
+        # 将abs链接转换为pdf链接
+        pdf_url = url.replace('/abs/', '/pdf/') + '.pdf'
+        logging.info(f"正在下载PDF: {pdf_url}")
+        
+        # 设置请求头，模拟浏览器
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(pdf_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        # 检查内容类型
+        content_type = response.headers.get('content-type', '')
+        if 'pdf' not in content_type.lower() and not response.content.startswith(b'%PDF'):
+            logging.warning(f"下载的文件可能不是PDF: {content_type}")
+        
+        with open(pdf_path, 'wb') as f:
+            f.write(response.content)
+        
+        logging.info(f"PDF下载成功: {pdf_path} (大小: {len(response.content)} bytes)")
+        return pdf_path
+        
+    except Exception as e:
+        logging.error(f"下载PDF失败 {paper_id}: {e}")
+        return None
 
-def analyze_prompt_tokens(prompt: str) -> Dict:
+def encode_pdf_to_base64(pdf_path: str) -> Optional[str]:
     """
-    分析prompt的token使用情况
+    将PDF文件编码为base64字符串
     
     Args:
-        prompt: 要分析的prompt
+        pdf_path: PDF文件路径
     
     Returns:
-        Dict: 包含token分析信息的字典
+        str: base64编码的PDF内容，如果失败返回None
     """
-    total_chars = len(prompt)
-    estimated_tokens = estimate_text_tokens(prompt)
+    try:
+        if not os.path.exists(pdf_path):
+            logging.error(f"PDF文件不存在: {pdf_path}")
+            return None
+        
+        with open(pdf_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        # 检查文件大小
+        file_size_mb = len(pdf_content) / (1024 * 1024)
+        if file_size_mb > 10:  # 如果PDF大于10MB，给出警告
+            logging.warning(f"PDF文件较大 ({file_size_mb:.1f}MB)，可能影响API调用")
+        
+        # 编码为base64
+        base64_content = base64.b64encode(pdf_content).decode('utf-8')
+        logging.info(f"PDF编码成功: {pdf_path} -> base64 (长度: {len(base64_content)} 字符)")
+        
+        return base64_content
+        
+    except Exception as e:
+        logging.error(f"PDF编码失败 {pdf_path}: {e}")
+        return None
+
+def create_file_upload_message(pdf_path: str, filename: str = None) -> Dict:
+    """
+    创建文件上传消息（用于支持文件上传的API）
     
-    # 分析中英文比例
-    chinese_chars = sum(1 for char in prompt if '\u4e00' <= char <= '\u9fff')
-    english_chars = sum(1 for char in prompt if char.isascii() and char.isalpha())
-    other_chars = total_chars - chinese_chars - english_chars
+    Args:
+        pdf_path: PDF文件路径
+        filename: 文件名，如果为None则使用原文件名
     
-    return {
-        "total_characters": total_chars,
-        "chinese_characters": chinese_chars,
-        "english_characters": english_chars,
-        "other_characters": other_chars,
-        "estimated_tokens": estimated_tokens,
-        "chinese_ratio": chinese_chars / total_chars if total_chars > 0 else 0,
-        "english_ratio": english_chars / total_chars if total_chars > 0 else 0
-    }
+    Returns:
+        Dict: 文件上传消息
+    """
+    try:
+        if not filename:
+            filename = os.path.basename(pdf_path)
+        
+        # 读取文件内容
+        with open(pdf_path, 'rb') as f:
+            file_content = f.read()
+        
+        # 创建文件上传消息
+        file_message = {
+            "type": "file",
+            "file": {
+                "name": filename,
+                "content": file_content,
+                "mime_type": "application/pdf"
+            }
+        }
+        
+        logging.info(f"文件上传消息创建成功: {filename}")
+        return file_message
+        
+    except Exception as e:
+        logging.error(f"创建文件上传消息失败 {pdf_path}: {e}")
+        return {}
 
 # ==================== 主执行流程 ====================
 if __name__ == '__main__':

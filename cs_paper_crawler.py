@@ -29,9 +29,9 @@ except ImportError:
 CRAWLER_CONFIG = {
     "request_delay": 2,  # 请求间隔时间（秒）
     "timeout": 10,  # 请求超时时间（秒）
-    "enable_llm_filter": True,  # 是否启用LLM语义过滤
-    "llm_batch_size": 5,  # LLM批量处理大小
-    "relevance_threshold": 0.7,  # 相关性阈值
+    "enable_llm_filter": True,  # 启用LLM语义过滤，智能筛选相关论文
+    "llm_batch_size": 10,  # 增加LLM批量处理大小，提高效率
+    "relevance_threshold": 0.6,  # 降低相关性阈值，保留更多相关论文
 }
 
 # ArXiv CS领域分类 - 只爬取每日论文
@@ -42,15 +42,15 @@ ARXIV_CS_CATEGORIES = {
 # 研究领域定义 - 用于LLM判断
 RESEARCH_AREAS = {
     "大模型算法": "专注于大语言模型的算法改进、架构优化、训练方法等",
-    "大模型应用": "大模型在实际应用中的部署、优化、效果提升等",
+    "大模型应用": "大模型在实际应用中的部署、优化、效果提升等，主要指在金融、搜索推荐、科学、数学等领域的应用，不包括地理信息、芯片设计、医疗、法律、教育等领域的应用",
     "智能体系统": "多智能体系统、自主智能体、智能体协作等",
     "强化学习": "强化学习算法、策略优化、多智能体强化学习等",
     "多模态大模型": "视觉语言模型、视频模型、音频模型、多模态大模型等",
     "模型微调": "LoRA、QLoRA、Adapter等参数高效微调方法",
     "检索增强生成": "RAG系统、知识检索、检索增强的生成等",
-    "大模型训练基础设施": "大模型训练基础设施、大模型训练框架、大模型训练平台等",
-    "大模型推理基础设施": "大模型推理基础设施、大模型推理框架、大模型推理平台等",
-    "大模型推理算法": "大模型推理算法、大模型推理框架、大模型推理平台等",
+    "大模型训练基础设施": "大模型训练基础设施、大模型训练框架、大模型训练平台等，不包括芯片硬件、芯片设计等",
+    "大模型推理基础设施": "大模型推理基础设施、大模型推理框架、大模型推理平台等，不包括芯片硬件、芯片设计等",
+    "大模型推理算法": "大模型推理算法、大模型推理框架、大模型推理平台等，不包括芯片硬件、芯片设计等",
     "大模型训练数据构造方法":"预训练数据构造方法、数据增强方法、数据清洗方法等",
     "微调数据构造方法":"微调数据构造方法、数据增强方法、数据清洗方法等",
     "后训练数据构造方法":"后训练数据构造方法、数据增强方法、数据清洗方法等"
@@ -110,11 +110,16 @@ class CSPaperCrawler:
         self.llm_filter_enabled = llm_config.get("enabled", CRAWLER_CONFIG["enable_llm_filter"])
         self.relevance_threshold = llm_config.get("relevance_threshold", CRAWLER_CONFIG["relevance_threshold"])
         self.llm_batch_size = llm_config.get("batch_size", CRAWLER_CONFIG["llm_batch_size"])
-        self.request_interval = llm_config.get("request_interval", 1)
+        self.request_interval = llm_config.get("request_interval", 0.5)  # 减少请求间隔，提高速度
         
         if self.llm_filter_enabled:
+            print(f"🤖 LLM语义过滤已启用")
+            print(f"   📊 相关性阈值: {self.relevance_threshold}")
+            print(f"   📦 批量大小: {self.llm_batch_size}")
+            print(f"   ⏱️  请求间隔: {self.request_interval}秒")
             self.logger.info(f"LLM语义过滤已启用，阈值: {self.relevance_threshold}, 批量大小: {self.llm_batch_size}")
         else:
+            print("🔍 LLM语义过滤已禁用，将使用关键词过滤")
             self.logger.info("LLM语义过滤已禁用，将使用关键词过滤")
     
     def _create_output_dir(self) -> str:
@@ -131,17 +136,42 @@ class CSPaperCrawler:
     def get_page(self, url: str) -> Optional[BeautifulSoup]:
         """获取页面内容"""
         try:
-            req = urlopen(url)
-            return BeautifulSoup(req.read(), 'html.parser')
-        except HTTPError:
-            self.logger.warning("HTTP错误，等待60秒后重试")
-            time.sleep(60)
-            return self.get_page(url)
-        except URLError:
-            self.logger.warning("URL错误，等待60秒后重试")
-            time.sleep(60)
-            return self.get_page(url)
+            print(f"   🌐 正在获取页面: {url}")
+            
+            # 添加超时控制
+            import urllib.request
+            import socket
+            
+            # 设置超时时间为30秒
+            socket.setdefaulttimeout(30)
+            
+            # 设置请求头，模拟浏览器
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            req = urllib.request.Request(url, headers=headers)
+            response = urllib.request.urlopen(req, timeout=30)
+            
+            content = response.read()
+            print(f"   ✅ 页面获取成功，大小: {len(content)} bytes")
+            
+            return BeautifulSoup(content, 'html.parser')
+            
+        except urllib.error.HTTPError as e:
+            print(f"   ❌ HTTP错误 {e.code}: {e.reason}")
+            self.logger.warning(f"HTTP错误 {e.code}: {e.reason}")
+            return None
+        except urllib.error.URLError as e:
+            print(f"   ❌ URL错误: {e.reason}")
+            self.logger.warning(f"URL错误: {e.reason}")
+            return None
+        except socket.timeout:
+            print(f"   ⏰ 请求超时")
+            self.logger.warning("请求超时")
+            return None
         except Exception as e:
+            print(f"   ❌ 获取页面时出错: {e}")
             self.logger.error(f"获取页面时出错: {e}")
             return None
     
@@ -163,25 +193,38 @@ class CSPaperCrawler:
     
     def crawl_arxiv_papers(self):
         """爬取ArXiv论文"""
+        print("🌐 正在爬取ArXiv CS领域每日论文...")
         self.logger.info("正在爬取ArXiv CS领域每日论文...")
         
         all_papers = []
         for category, url in ARXIV_CS_CATEGORIES.items():
+            print(f"📚 爬取类别: {category}")
             self.logger.info(f"爬取类别: {category}")
             try:
+                print(f"   🔗 访问URL: {url}")
                 papers = self.crawl_arxiv_category(url, category)
                 if papers:
                     all_papers.extend(papers)
+                    print(f"   ✅ 类别 {category}: 找到 {len(papers)} 篇论文")
                     self.logger.info(f"类别 {category}: 找到 {len(papers)} 篇论文")
+                else:
+                    print(f"   ⚠️  类别 {category}: 未找到论文")
+                print(f"   ⏱️  等待 {CRAWLER_CONFIG['request_delay']} 秒...")
                 time.sleep(CRAWLER_CONFIG["request_delay"])
             except Exception as e:
+                print(f"   ❌ 爬取 {category} 时出错: {e}")
                 self.logger.error(f"爬取 {category} 时出错: {e}")
         
+        print(f"📊 总共找到 {len(all_papers)} 篇论文")
+        
         if all_papers:
+            print("🔍 开始过滤论文...")
             filtered_papers = self.filter_papers_by_keywords(all_papers)
+            print(f"✅ 关键词筛选后，共找到 {len(filtered_papers)} 篇相关论文")
             self.logger.info(f"关键词筛选后，共找到 {len(filtered_papers)} 篇相关论文")
             self.save_papers(filtered_papers)
         else:
+            print("⚠️  未找到任何论文")
             self.logger.warning("未找到任何论文")
     
     def crawl_arxiv_category(self, url: str, category: str) -> List[Dict]:
@@ -202,9 +245,13 @@ class CSPaperCrawler:
         papers = []
         
         try:
+            print(f"   🔍 正在解析页面内容...")
+            
             # 根据实际HTML结构，论文信息在dt和dd标签对中
             dt_elements = bs.find_all("dt")
+            print(f"   📄 找到 {len(dt_elements)} 个论文条目")
             
+            processed_count = 0
             for dt_element in dt_elements:
                 try:
                     # 获取对应的dd元素（论文详细信息）
@@ -237,61 +284,53 @@ class CSPaperCrawler:
                     # 提取标题
                     title_element = dd_element.find("div", class_="list-title")
                     if title_element:
-                        # 去掉"Title:"标签，只保留标题文本
-                        title_text = title_element.get_text()
-                        if "Title:" in title_text:
-                            title_text = title_text.split("Title:", 1)[1].strip()
+                        title_text = title_element.get_text(strip=True)
+                        # 移除"Title:"前缀
+                        if title_text.startswith("Title:"):
+                            title_text = title_text[6:].strip()
                         paper_info["title"] = title_text
-                    
-                    # 提取作者
-                    authors_element = dd_element.find("div", class_="list-authors")
-                    if authors_element:
-                        # 提取所有作者链接的文本
-                        author_links = authors_element.find_all("a")
-                        if author_links:
-                            authors = [link.get_text().strip() for link in author_links]
-                            paper_info["authors"] = ", ".join(authors)
-                        else:
-                            # 如果没有链接，直接获取文本
-                            authors_text = authors_element.get_text()
-                            if "Authors:" in authors_text:
-                                authors_text = authors_text.split("Authors:", 1)[1].strip()
-                            paper_info["authors"] = authors_text
-                    
-                    # 提取学科分类
-                    subjects_element = dd_element.find("div", class_="list-subjects")
-                    if subjects_element:
-                        subjects_text = subjects_element.get_text()
-                        if "Subjects:" in subjects_text:
-                            subjects_text = subjects_text.split("Subjects:", 1)[1].strip()
-                        paper_info["subjects"] = subjects_text
                     
                     # 提取摘要
                     abstract_element = dd_element.find("p", class_="mathjax")
                     if abstract_element:
-                        paper_info["abstract"] = abstract_element.get_text().strip()
+                        paper_info["abstract"] = abstract_element.get_text(strip=True)
                     
-                    # 提取评论信息（如果有）
-                    comments_element = dd_element.find("div", class_="list-comments")
-                    if comments_element:
-                        comments_text = comments_element.get_text()
-                        if "Comments:" in comments_text:
-                            comments_text = comments_text.split("Comments:", 1)[1].strip()
-                        paper_info["comments"] = comments_text
+                    # 提取作者
+                    authors_element = dd_element.find("div", class_="list-authors")
+                    if authors_element:
+                        authors_text = authors_element.get_text(strip=True)
+                        # 移除"Authors:"前缀
+                        if authors_text.startswith("Authors:"):
+                            authors_text = authors_text[8:].strip()
+                        paper_info["authors"] = authors_text
                     
-                    # 检查是否有必要的字段
-                    if paper_info.get("title") and paper_info.get("id"):
-                        papers.append(paper_info)
-                        self.crawled_papers.add(paper_id)
-                        
+                    # 提取主题
+                    subjects_element = dd_element.find("div", class_="list-subjects")
+                    if subjects_element:
+                        subjects_text = subjects_element.get_text(strip=True)
+                        # 移除"Subjects:"前缀
+                        if subjects_text.startswith("Subjects:"):
+                            subjects_text = subjects_text[9:].strip()
+                        paper_info["subjects"] = subjects_text
+                    
+                    papers.append(paper_info)
+                    processed_count += 1
+                    
+                    # 每处理10篇论文显示一次进度
+                    if processed_count % 10 == 0:
+                        print(f"   📊 已处理 {processed_count}/{len(dt_elements)} 篇论文")
+                    
                 except Exception as e:
                     self.logger.warning(f"提取论文元素时出错: {e}")
                     continue
-                    
+            
+            print(f"   ✅ 成功提取 {len(papers)} 篇论文")
+            return papers
+            
         except Exception as e:
-            self.logger.error(f"提取论文列表时出错: {e}")
-        
-        return papers
+            print(f"   ❌ 提取论文时出错: {e}")
+            self.logger.error(f"提取论文时出错: {e}")
+            return []
     
     def filter_papers_by_keywords(self, papers: List[Dict]) -> List[Dict]:
         """使用LLM语义过滤论文，提高相关性判断准确性"""
@@ -310,85 +349,110 @@ class CSPaperCrawler:
         if not papers:
             return []
         
+        print(f"🤖 开始使用LLM语义过滤 {len(papers)} 篇论文...")
         self.logger.info(f"开始使用LLM语义过滤 {len(papers)} 篇论文...")
         
         # 获取LLM过滤配置
         llm_config = self.config.get("llm_filter", {})
-        batch_size = llm_config.get("batch_size", 5)
-        relevance_threshold = llm_config.get("relevance_threshold", 0.7)
-        request_interval = llm_config.get("request_interval", 2)
+        batch_size = llm_config.get("batch_size", 10)  # 增加批量大小
+        relevance_threshold = llm_config.get("relevance_threshold", 0.6)
+        request_interval = llm_config.get("request_interval", 0.5)
         
         # 分批处理论文
         filtered_papers = []
         total_batches = (len(papers) + batch_size - 1) // batch_size
         
+        print(f"   📦 将分 {total_batches} 批处理，每批最多 {batch_size} 篇论文")
+        
         for batch_idx in range(0, len(papers), batch_size):
-            batch = papers[batch_idx:batch_idx + 1]  # 每次只处理1篇论文，避免API限制
+            batch = papers[batch_idx:batch_idx + batch_size]
             current_batch = (batch_idx // batch_size) + 1
             
+            print(f"   🔄 处理批次 {current_batch}/{total_batches}，包含 {len(batch)} 篇论文")
             self.logger.info(f"处理批次 {current_batch}/{total_batches}，包含 {len(batch)} 篇论文")
             
-            for paper in batch:
-                try:
-                    self.logger.info(f"分析论文: {paper.get('title', 'Unknown')[:50]}...")
-                    
-                    # 调用LLM分析相关性
-                    relevance_result = analyze_paper_relevance(
-                        paper_title=paper.get('title', ''),
-                        paper_abstract=paper.get('abstract', ''),
-                        research_areas=RESEARCH_AREAS
-                    )
-                    
-                    if relevance_result:
+            # 批量处理论文，减少API调用次数
+            batch_titles = [paper.get('title', '') for paper in batch]
+            batch_abstracts = [paper.get('abstract', '') for paper in batch]
+            
+            try:
+                print(f"   🤖 调用LLM分析批次 {current_batch}...")
+                
+                # 批量分析相关性
+                relevance_results = self._analyze_batch_relevance(
+                    batch_titles, batch_abstracts, batch
+                )
+                
+                # 处理结果
+                for i, (paper, result) in enumerate(zip(batch, relevance_results)):
+                    if result:
                         # 获取相关性分数
-                        relevance_score = float(relevance_result.get("relevance_score", 0))
-                        best_match_area = relevance_result.get("best_match_area", "未知")
-                        reasoning = relevance_result.get("relevance_reasoning", "无推理说明")
+                        relevance_score = float(result.get("relevance_score", 0))
+                        best_match_area = result.get("best_match_area", "未知")
+                        reasoning = result.get("relevance_reasoning", "无推理说明")
                         
                         # 记录分析结果
                         paper['llm_analysis'] = {
                             'relevance_score': relevance_score,
                             'best_match_area': best_match_area,
                             'reasoning': reasoning,
-                            'is_relevant': relevance_result.get("is_relevant", False),
-                            'summary': relevance_result.get("summary", "")
+                            'is_relevant': result.get("is_relevant", False),
+                            'summary': result.get("summary", "")
                         }
                         
                         # 判断是否相关
                         if relevance_score >= relevance_threshold:
                             filtered_papers.append(paper)
-                            self.logger.info(f"✅ 论文相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
+                            print(f"      ✅ 论文 {i+1} 相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
                         else:
-                            self.logger.info(f"❌ 论文不相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
-                            self.logger.debug(f"推理过程: {reasoning}")
+                            print(f"      ❌ 论文 {i+1} 不相关 (分数: {relevance_score:.2f}, 领域: {best_match_area})")
                     else:
-                        # LLM分析失败，使用关键词过滤作为备选
-                        self.logger.warning("LLM分析失败，使用关键词过滤作为备选")
+                        print(f"      ⚠️  论文 {i+1} LLM分析失败")
+                        # 如果LLM分析失败，根据配置决定是否使用关键词过滤作为备选
                         if self.config.get("llm_filter", {}).get("enable_fallback", True):
                             if self._check_paper_relevance_with_keywords(paper):
                                 filtered_papers.append(paper)
-                                self.logger.info("✅ 关键词过滤通过")
+                                print(f"      ✅ 论文 {i+1} 关键词过滤通过")
                             else:
-                                self.logger.info("❌ 关键词过滤不通过")
-                        else:
-                            self.logger.info("❌ 关键词过滤未启用，论文被排除")
+                                print(f"      ❌ 论文 {i+1} 关键词过滤不通过")
+                
+                # 添加请求间隔，避免API限制
+                if request_interval > 0 and current_batch < total_batches:
+                    print(f"   ⏱️  等待 {request_interval} 秒...")
+                    time.sleep(request_interval)
                     
-                    # 添加请求间隔，避免API限制
-                    if request_interval > 0:
-                        time.sleep(request_interval)
+            except Exception as e:
+                print(f"   ❌ 批次 {current_batch} 处理失败: {e}")
+                self.logger.error(f"批次 {current_batch} 处理失败: {e}")
+                
+                # 如果批量处理失败，回退到单篇处理
+                print(f"   🔄 回退到单篇处理...")
+                for paper in batch:
+                    try:
+                        relevance_result = analyze_paper_relevance(
+                            paper_title=paper.get('title', ''),
+                            paper_abstract=paper.get('abstract', ''),
+                            research_areas=RESEARCH_AREAS
+                        )
                         
-                except Exception as e:
-                    self.logger.error(f"分析论文相关性失败: {e}")
-                    # 如果LLM分析失败，根据配置决定是否使用关键词过滤作为备选
-                    if self.config.get("llm_filter", {}).get("enable_fallback", True):
-                        if self._check_paper_relevance_with_keywords(paper):
-                            filtered_papers.append(paper)
-                            self.logger.info("✅ 关键词过滤通过（LLM分析失败后的备选）")
+                        if relevance_result:
+                            relevance_score = float(relevance_result.get("relevance_score", 0))
+                            if relevance_score >= relevance_threshold:
+                                filtered_papers.append(paper)
+                                print(f"      ✅ 回退处理: 论文相关 (分数: {relevance_score:.2f})")
                         else:
-                            self.logger.info("❌ 关键词过滤不通过（LLM分析失败后的备选）")
-                    else:
-                        self.logger.info("❌ 关键词过滤未启用，论文被排除")
+                            # 使用关键词过滤作为备选
+                            if self._check_paper_relevance_with_keywords(paper):
+                                filtered_papers.append(paper)
+                                print(f"      ✅ 回退处理: 关键词过滤通过")
+                    except Exception as e2:
+                        print(f"      ❌ 回退处理失败: {e2}")
+                        # 最后备选：直接通过
+                        if self.config.get("llm_filter", {}).get("enable_fallback", True):
+                            filtered_papers.append(paper)
+                            print(f"      ✅ 回退处理: 直接通过（备选）")
         
+        print(f"🤖 LLM语义过滤完成，从 {len(papers)} 篇论文中筛选出 {len(filtered_papers)} 篇相关论文")
         self.logger.info(f"LLM语义过滤完成，从 {len(papers)} 篇论文中筛选出 {len(filtered_papers)} 篇相关论文")
         return filtered_papers
     
@@ -482,6 +546,48 @@ class CSPaperCrawler:
             
         except Exception as e:
             self.logger.error(f"生成汇总报告时出错: {e}")
+
+    def _analyze_batch_relevance(self, titles: List[str], abstracts: List[str], papers: List[Dict]) -> List[Optional[Dict]]:
+        """批量分析论文相关性，提高API调用效率"""
+        try:
+            # 构建批量分析提示
+            batch_prompt = self._build_batch_analysis_prompt(titles, abstracts)
+            
+            # 调用LLM进行批量分析
+            from llm_api import analyze_paper_relevance
+            
+            # 这里可以优化为真正的批量调用，但目前先使用单篇调用的方式
+            # 未来可以修改llm_api.py支持批量分析
+            results = []
+            for title, abstract in zip(titles, abstracts):
+                try:
+                    result = analyze_paper_relevance(
+                        paper_title=title,
+                        paper_abstract=abstract,
+                        research_areas=RESEARCH_AREAS
+                    )
+                    results.append(result)
+                except Exception as e:
+                    print(f"      ⚠️  单篇分析失败: {e}")
+                    results.append(None)
+            
+            return results
+            
+        except Exception as e:
+            print(f"      ❌ 批量分析失败: {e}")
+            return [None] * len(titles)
+    
+    def _build_batch_analysis_prompt(self, titles: List[str], abstracts: List[str]) -> str:
+        """构建批量分析提示"""
+        prompt = "请分析以下论文的相关性，每篇论文给出相关性分数和领域匹配：\n\n"
+        
+        for i, (title, abstract) in enumerate(zip(titles, abstracts)):
+            prompt += f"论文 {i+1}:\n"
+            prompt += f"标题: {title}\n"
+            prompt += f"摘要: {abstract[:200]}...\n\n"
+        
+        prompt += "请以JSON格式返回结果，包含每篇论文的相关性分析。"
+        return prompt
 
 
 def check_dependencies():

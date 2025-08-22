@@ -184,6 +184,15 @@ llm:
       - "论文做了哪些实验？实验结论如何？"
       - "有什么可以进一步探索的点？"
 
+# LLM语义过滤配置
+llm_filter:
+  enabled: true  # 启用LLM语义过滤
+  batch_size: 10  # 批量处理大小，提高效率
+  relevance_threshold: 0.6  # 相关性阈值，0.6表示60%相关即可保留
+  request_interval: 0.5  # 请求间隔（秒），减少等待时间
+  enable_fallback: true  # 启用备选方案（关键词过滤）
+  max_retries: 3  # 最大重试次数
+
 # ==================== 邮件配置 ====================
 email:
   # 是否启用邮件发送

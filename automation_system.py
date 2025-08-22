@@ -32,7 +32,7 @@ from report_generator import get_report_generator
 # 导入爬虫和LLM模块
 try:
     from cs_paper_crawler import CSPaperCrawler
-    from llm_api import main_paper_analysis
+    from llm_api import main_paper_analysis, analyze_paper_with_questions, get_api_config_with_scenario
 except ImportError as e:
     logging.error(f"导入模块失败: {e}")
     logging.error("请确保 cs_paper_crawler.py 和 llm_api.py 文件存在")
@@ -211,27 +211,65 @@ class AutomationSystem:
     """CS论文自动化分析系统"""
     
     def __init__(self):
-        self.config = get_config()
-        self.report_generator = get_report_generator()
-        self.logger = self._setup_logging()
-        self.gmail_sender = None
-        
-        # 初始化邮件发送器
-        if self.config.is_enabled("email"):
-            self._init_email_sender()
+        try:
+            self.config = get_config()
+            self.report_generator = get_report_generator()
+            self.logger = self._setup_logging()
+            self.gmail_sender = None
+            
+            # 检查基本依赖
+            self._check_basic_dependencies()
+            
+            # 初始化邮件发送器
+            if self.config.is_enabled("email"):
+                self._init_email_sender()
+                
+            self.logger.info("AutomationSystem初始化完成")
+            
+        except Exception as e:
+            # 如果日志系统还没设置，先设置基本日志
+            if not logging.getLogger().handlers:
+                logging.basicConfig(
+                    level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s'
+                )
+            
+            error_msg = f"AutomationSystem初始化失败: {e}"
+            logging.error(error_msg)
+            raise Exception(error_msg)
+    
+    def _check_basic_dependencies(self):
+        """检查基本依赖"""
+        try:
+            # 检查必要的模块
+            import requests
+            import schedule
+            import markdown
+            
+            self.logger.info("基本依赖检查通过")
+            
+        except ImportError as e:
+            error_msg = f"缺少必要的依赖包: {e}"
+            self.logger.error(error_msg)
+            raise Exception(error_msg)
     
     def _setup_logging(self) -> logging.Logger:
         """设置日志"""
-        log_level = getattr(logging, self.config.get("system.log_level", "INFO"))
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('automation_system.log', encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
-        return logging.getLogger(__name__)
+        # 检查是否已经配置过日志
+        if not logging.getLogger().handlers:
+            log_level = getattr(logging, self.config.get("system.log_level", "INFO"))
+            logging.basicConfig(
+                level=log_level,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler('automation_system.log', encoding='utf-8'),
+                    logging.StreamHandler()
+                ]
+            )
+        
+        logger = logging.getLogger(__name__)
+        logger.info("AutomationSystem日志系统初始化完成")
+        return logger
     
     def _init_email_sender(self):
         """初始化邮件发送器"""
@@ -770,66 +808,127 @@ uv sync
     def run_daily_workflow(self):
         """运行每日工作流程"""
         try:
+            print("🚀 开始执行每日工作流程...")
             self.logger.info("开始执行每日工作流程")
             start_time = time.time()
             
             # 获取当前日期
             date_str = datetime.now().strftime("%y%m%d")
+            print(f"📅 当前日期: {date_str}")
             
             # 步骤1: 爬取论文
+            print("📚 步骤1: 开始爬取论文...")
             self.logger.info("步骤1: 开始爬取论文")
             papers = self._crawl_papers()
             if not papers:
+                print("⚠️  未爬取到论文，跳过后续步骤")
                 self.logger.warning("未爬取到论文，跳过后续步骤")
                 return
             
+            print(f"✅ 爬取完成，获得 {len(papers)} 篇论文")
+            
             # 步骤2: LLM解读论文
+            print("🤖 步骤2: 开始LLM解读论文...")
             self.logger.info("步骤2: 开始LLM解读论文")
-            analysis_results = self._analyze_papers(papers, date_str)
+            analysis_results = self._analyze_papers(papers)
             if not analysis_results:
+                print("⚠️  论文解读失败，跳过后续步骤")
                 self.logger.warning("论文解读失败，跳过后续步骤")
                 return
             
+            print(f"✅ 论文解读完成，分析 {len(analysis_results)} 篇论文")
+            
             # 步骤3: 生成报告
+            print("📊 步骤3: 开始生成报告...")
             self.logger.info("步骤3: 开始生成报告")
             report_path = self._generate_reports(analysis_results, date_str)
             
             # 步骤4: 发送邮件
             if self.config.is_enabled("email") and self.gmail_sender:
+                print("📧 步骤4: 开始发送邮件...")
                 self.logger.info("步骤4: 开始发送邮件")
                 self._send_email_report(report_path, analysis_results, date_str)
+            else:
+                print("ℹ️  邮件功能未启用或未配置")
             
             # 完成统计
             end_time = time.time()
             duration = end_time - start_time
+            
+            print("🎉 每日工作流程完成！")
+            print(f"📈 处理论文: {len(analysis_results)} 篇")
+            print(f"⏱️  耗时: {duration:.2f} 秒")
             
             self.logger.info(f"每日工作流程完成！")
             self.logger.info(f"处理论文: {len(analysis_results)} 篇")
             self.logger.info(f"耗时: {duration:.2f} 秒")
             
         except Exception as e:
-            self.logger.error(f"每日工作流程执行失败: {e}")
+            error_msg = f"每日工作流程执行失败: {e}"
+            print(f"❌ {error_msg}")
+            self.logger.error(error_msg)
             self._send_failure_notification(str(e))
     
     def _crawl_papers(self) -> List[Dict]:
         """爬取论文"""
         try:
+            print("🔧 初始化论文爬虫...")
             self.logger.info("初始化论文爬虫")
             # 传递配置给爬虫
             crawler = CSPaperCrawler(config=self.config)
             
             # 运行爬虫
+            print("🚀 启动爬虫...")
             self.logger.info("开始爬取论文...")
-            crawler.start()
+            
+            # 添加超时控制
+            import threading
+            import time
+            
+            # 在后台线程中运行爬虫
+            crawler_thread = threading.Thread(target=crawler.start)
+            crawler_thread.daemon = True
+            crawler_thread.start()
+            
+            # 等待爬虫完成，最多等待2分钟（减少超时时间）
+            max_wait_time = 120  # 2分钟
+            wait_interval = 3    # 每3秒检查一次
+            waited_time = 0
+            
+            print("⏳ 等待爬虫完成...")
+            while crawler_thread.is_alive() and waited_time < max_wait_time:
+                print(f"   ⏱️  等待中... ({waited_time}/{max_wait_time}秒)")
+                self.logger.info(f"等待爬虫完成... ({waited_time}/{max_wait_time}秒)")
+                time.sleep(wait_interval)
+                waited_time += wait_interval
+                
+                # 每30秒显示一次详细状态
+                if waited_time % 30 == 0:
+                    print(f"   📊 爬虫仍在运行，已等待 {waited_time} 秒...")
+            
+            if crawler_thread.is_alive():
+                print("⚠️  爬虫运行超时，但继续尝试读取结果...")
+                self.logger.warning("爬虫运行超时，但继续尝试读取结果")
+            else:
+                print("✅ 爬虫运行完成")
+                self.logger.info("爬虫运行完成")
+            
+            # 等待一下确保文件写入完成
+            print("💾 等待文件写入完成...")
+            time.sleep(3)  # 增加等待时间
             
             # 读取爬取结果
+            print("📖 读取爬取结果...")
             papers = self._load_crawled_papers()
+            print(f"📊 爬取完成，共获取 {len(papers)} 篇论文")
             self.logger.info(f"爬取完成，共获取 {len(papers)} 篇论文")
             
             return papers
             
         except Exception as e:
-            self.logger.error(f"爬取论文失败: {e}")
+            error_msg = f"爬取论文失败: {e}"
+            print(f"❌ {error_msg}")
+            self.logger.error(error_msg)
             raise
     
     def _load_crawled_papers(self) -> List[Dict]:
@@ -888,23 +987,57 @@ uv sync
             self.logger.error(f"加载爬取论文失败: {e}")
             return []
     
-    def _analyze_papers(self, papers: List[Dict], date_str: str) -> List[Dict]:
-        """使用LLM解读论文"""
-        try:
-            self.logger.info(f"开始解读 {len(papers)} 篇论文")
-            
-            # 调用LLM分析
-            main_paper_analysis()
-            
-            # 读取分析结果
-            analysis_results = self._load_analysis_results(date_str)
-            self.logger.info(f"论文解读完成，共分析 {len(analysis_results)} 篇论文")
-            
-            return analysis_results
-            
-        except Exception as e:
-            self.logger.error(f"论文解读失败: {e}")
-            raise
+    def _analyze_papers(self, papers: List[Dict]) -> List[Dict]:
+        """分析论文"""
+        if not papers:
+            self.logger.warning("没有论文需要分析")
+            return []
+        
+        self.logger.info(f"开始分析 {len(papers)} 篇论文...")
+        
+        all_analysis_results = []
+        
+        for i, paper in enumerate(papers, 1):
+            try:
+                self.logger.info(f"分析论文 {i}/{len(papers)}: {paper.get('title', 'Unknown')[:50]}...")
+                
+                # 使用优化的分析方法，一次性回答所有问题
+                analysis_result = analyze_paper_with_questions(
+                    paper_title=paper.get('title', ''),
+                    paper_abstract=paper.get('abstract', ''),
+                    paper_url=paper.get('url'),  # 传递URL用于下载PDF
+                    paper_id=paper.get('id'),    # 传递ID用于保存结果
+                    save_results=True            # 启用结果保存
+                )
+                
+                if analysis_result:
+                    # 添加论文基本信息
+                    analysis_result.update({
+                        'paper_id': paper.get('id', ''),
+                        'paper_title': paper.get('title', ''),
+                        'paper_url': paper.get('url', ''),
+                        'analysis_time': datetime.now().isoformat(),
+                        'llm_provider': get_api_config_with_scenario("paper_analysis")["model"] if get_api_config_with_scenario("paper_analysis") else "unknown"
+                    })
+                    
+                    all_analysis_results.append(analysis_result)
+                    
+                    self.logger.info(f"✅ 论文分析完成: {paper.get('title', 'Unknown')[:50]}")
+                    
+                    # 打印分析摘要
+                    if 'q1_main_content' in analysis_result:
+                        content_summary = analysis_result['q1_main_content'][:100] + "..." if len(analysis_result['q1_main_content']) > 100 else analysis_result['q1_main_content']
+                        self.logger.info(f"   主要内容: {content_summary}")
+                    
+                else:
+                    self.logger.warning(f"❌ 论文分析失败: {paper.get('title', 'Unknown')[:50]}")
+                    
+            except Exception as e:
+                self.logger.error(f"分析论文时出错: {e}")
+                continue
+        
+        self.logger.info(f"论文分析完成，成功分析 {len(all_analysis_results)} 篇论文")
+        return all_analysis_results
     
     def _load_analysis_results(self, date_str: str) -> List[Dict]:
         """加载分析结果"""
@@ -1152,21 +1285,39 @@ uv sync
 
 def main():
     """主函数"""
+    # 设置基本日志配置，确保有输出
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('automation_system.log', encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 CS论文自动化分析系统启动")
+    
     if len(sys.argv) < 2:
         print("🚀 CS论文自动化分析系统")
-        print("使用方法:")
-        print("  python automation_system.py interactive  # 交互式菜单")
-        print("  python automation_system.py run         # 运行一次完整流程")
-        print("  python automation_system.py schedule    # 启动定时任务")
-        print("  python automation_system.py crawl       # 仅爬取论文")
-        print("  python automation_system.py analyze     # 仅分析论文")
-        print("  python automation_system.py report      # 仅生成报告")
-        print("  python automation_system.py help        # 显示帮助信息")
+        print("=" * 50)
+        print("未指定命令，启动交互式菜单...")
+        print()
+        
+        try:
+            system = AutomationSystem()
+            system.run_interactive()
+        except Exception as e:
+            logger.error(f"系统启动失败: {e}")
+            print(f"❌ 系统启动失败: {e}")
+            print("请检查配置文件和依赖包")
+            sys.exit(1)
         return
     
     command = sys.argv[1].lower()
     
     try:
+        logger.info(f"执行命令: {command}")
         system = AutomationSystem()
         
         if command == "interactive":
@@ -1204,7 +1355,9 @@ def main():
             print("运行 'python automation_system.py help' 查看帮助")
             
     except Exception as e:
+        logger.error(f"系统启动失败: {e}")
         print(f"❌ 系统启动失败: {e}")
+        print("请检查配置文件和依赖包")
         sys.exit(1)
 
 if __name__ == "__main__":
